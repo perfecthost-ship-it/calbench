@@ -1,1 +1,116 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CALBENCH — Torque Calibration Certificates, Labels & Traceability</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0f1115;
+    color: #e6e8eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+  .card {
+    max-width: 560px;
+    width: 100%;
+    background: #171a21;
+    border: 1px solid #2a2e37;
+    border-radius: 12px;
+    padding: 40px;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 1.6rem;
+    letter-spacing: 0.02em;
+  }
+  .tag {
+    color: #9aa4b2;
+    margin: 0 0 24px;
+    font-size: 0.95rem;
+  }
+  .status {
+    display: inline-block;
+    font-size: 0.75rem;
+    background: #2a2e37;
+    color: #f2c14e;
+    padding: 4px 10px;
+    border-radius: 999px;
+    margin-bottom: 24px;
+  }
+  p.note {
+    font-size: 0.88rem;
+    color: #9aa4b2;
+    line-height: 1.5;
+  }
+  .links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 24px 0;
+  }
+  a.btn {
+    display: block;
+    text-align: center;
+    padding: 14px 18px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.95rem;
+    transition: opacity 0.15s ease;
+  }
+  a.btn:hover { opacity: 0.85; }
+  a.primary {
+    background: #f2c14e;
+    color: #171a21;
+  }
+  a.secondary {
+    background: transparent;
+    color: #e6e8eb;
+    border: 1px solid #2a2e37;
+  }
+  footer {
+    margin-top: 24px;
+    font-size: 0.8rem;
+    color: #6b7280;
+  }
+  footer a { color: #9aa4b2; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <span class="status">Prototype · Demonstration data only</span>
+    <h1>CALBENCH</h1>
+    <p class="tag">Torque Calibration Certificates, Labels &amp; Traceability</p>
+
+    <div class="links">
+      <a class="primary btn" href="calbenchdemo_5.html">Open Desktop Demo</a>
+      <a class="secondary btn" href="calbench-mobile.html">Open Mobile Demo</a>
+    </div>
+
+    <p class="note">
+      A working prototype covering data entry, calibration maths, BS EN ISO 6789 certificates,
+      Code 128 barcode labels, and a searchable SQLite store — built to demonstrate software
+      engineering ability alongside torque and force metrology experience.
+    </p>
+    <p class="note">
+      This is a static hosted version. Certificate calculations, barcode generation, and the
+      UI all run client-side and work fully here. Search, save, and scan-lookup features rely
+      on the Python backend and require running the project locally — see the
+      <a href="https://github.com/perfecthost-ship-it/calbench" style="color:#f2c14e;">README</a>
+      for setup.
+    </p>
+
+    <footer>
+      Built by Lee — Leicester, UK · <a href="https://github.com/perfecthost-ship-it/calbench">View source on GitHub</a>
+    </footer>
+  </div>
+</body>
+</html>
