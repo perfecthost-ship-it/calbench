@@ -1,0 +1,2372 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CALBENCH Demo — Torque calibration certificates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  /* ==========================================================
+     CALBENCH — instrument-panel design system
+
+     One superfamily (IBM Plex) across three roles: condensed for
+     labels and structure, sans for prose, mono for every number.
+     One accent, and it means one thing: yellow is the tolerance
+     band. It appears on the data and on the header rule, nowhere
+     else — so when you see it, it is telling you about tolerance,
+     not asking for a click.
+     ========================================================== */
+
+  :root{
+    /* ink scale, cooled slightly so white panels read as paper */
+    --ink:#111418;
+    --ink-2:#2a323a;
+    --steel:#5a6672;
+    --mute:#93a0ac;
+    --hairline:#e6eaed;
+    --rule:#d3dae0;
+    --shell:#e9edf0;
+    --shell-2:#dfe5ea;
+    --paper:#ffffff;
+
+    /* accent — tolerance, and nothing else */
+    --signal:#f0b429;
+    --signal-deep:#b07d05;
+
+    /* verdicts */
+    --pass:#136f45;
+    --pass-soft:rgba(19,111,69,.09);
+    --fail:#b3301f;
+    --fail-soft:rgba(179,48,31,.09);
+    --lh:#26648f;
+
+    --sans:'IBM Plex Sans','Segoe UI',system-ui,-apple-system,sans-serif;
+    --mono:'IBM Plex Mono','Cascadia Mono',ui-monospace,Consolas,monospace;
+    --cond:'IBM Plex Sans Condensed','Bahnschrift','Arial Narrow',sans-serif;
+
+    --lift:0 1px 1px rgba(17,20,24,.04), 0 2px 6px rgba(17,20,24,.05);
+    --lift-2:0 2px 4px rgba(17,20,24,.06), 0 12px 28px rgba(17,20,24,.10);
+    --r:2px;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+
+  body{
+    background:var(--shell);
+    background-image:linear-gradient(180deg,var(--shell) 0%,var(--shell-2) 100%);
+    background-attachment:fixed;
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:14px;
+    line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+  }
+
+  /* ---------- app bar ---------- */
+
+  .appbar{
+    position:sticky;top:0;z-index:20;
+    background:linear-gradient(180deg,#1b2127 0%,#141a1f 100%);
+    color:#fff;
+    border-bottom:2px solid var(--signal);
+    box-shadow:0 1px 0 rgba(0,0,0,.3), 0 6px 20px rgba(17,20,24,.14);
+    padding:0 26px;
+    min-height:62px;
+    display:flex;
+    align-items:center;
+    gap:22px;
+    flex-wrap:wrap;
+  }
+  .appbar__mark{
+    font-family:var(--cond);
+    font-weight:600;
+    font-size:25px;
+    letter-spacing:.2em;
+    text-transform:uppercase;
+    line-height:1;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .appbar__mark span{color:var(--signal);font-weight:300}
+  .appbar__mark em{
+    font-style:normal;
+    font-family:var(--cond);
+    font-size:10px;letter-spacing:.22em;font-weight:500;
+    color:#c8d1d9;
+    background:none;
+    border:1px solid #454f58;
+    border-radius:var(--r);
+    padding:3px 9px;
+    vertical-align:middle;margin-left:0;
+  }
+  .appbar__sub{
+    font-family:var(--cond);
+    font-size:13px;
+    letter-spacing:.2em;
+    text-transform:uppercase;
+    color:#8794a0;
+    border-left:1px solid #333c45;
+    padding-left:22px;
+  }
+  .appbar__spacer{flex:1}
+
+  .verdict{
+    font-family:var(--cond);
+    font-size:14px;
+    font-weight:500;
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    padding:8px 18px;
+    border:1px solid;
+    border-radius:var(--r);
+    display:inline-flex;
+    align-items:center;
+    gap:11px;
+    white-space:nowrap;
+  }
+  .verdict--pass{color:#63d29c;border-color:#255e45;background:rgba(37,94,69,.3)}
+  .verdict--fail{color:#ff9c8c;border-color:#7a3226;background:rgba(122,50,38,.32)}
+  .verdict--none{color:#8794a0;border-color:#333c45;background:rgba(255,255,255,.03)}
+  .verdict__dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+
+  /* ---------- layout ---------- */
+
+  .workspace{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1.04fr);
+    gap:26px;
+    padding:26px;
+    align-items:start;
+    max-width:1620px;
+    margin:0 auto;
+  }
+  @media (max-width:1080px){ .workspace{grid-template-columns:minmax(0,1fr);gap:20px;padding:18px} }
+
+  .stack{display:flex;flex-direction:column;gap:20px;min-width:0}
+
+  /* Panels sit on the shell as quiet paper. No heavy header bars —
+     hierarchy comes from type and space, not from filled strips. */
+  .panel{
+    background:var(--paper);
+    border-radius:var(--r);
+    box-shadow:var(--lift);
+  }
+  .panel__head{
+    display:flex;
+    align-items:baseline;
+    gap:12px;
+    padding:16px 22px 12px;
+    border-bottom:1px solid var(--hairline);
+  }
+  .panel__idx{
+    font-family:var(--mono);
+    font-size:11px;
+    font-weight:500;
+    color:var(--mute);
+    background:none;
+    padding:0;
+    letter-spacing:.04em;
+  }
+  .panel__title{
+    font-family:var(--cond);
+    font-size:17px;
+    font-weight:600;
+    letter-spacing:.09em;
+    text-transform:uppercase;
+    color:var(--ink);
+  }
+  .panel__hint{
+    font-size:12px;
+    color:var(--mute);
+    margin-left:auto;
+    text-align:right;
+  }
+  .panel__body{padding:20px 22px 22px}
+
+  /* ---------- fields ---------- */
+
+  .grid{display:grid;gap:14px}
+  .grid--2{grid-template-columns:1fr 1fr}
+  .grid--3{grid-template-columns:1fr 1fr 1fr}
+  @media (max-width:620px){ .grid--2,.grid--3{grid-template-columns:1fr} }
+  .span2{grid-column:span 2}
+  @media (max-width:620px){ .span2{grid-column:span 1} }
+
+  .field{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .field > label{
+    font-family:var(--cond);
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:.11em;
+    text-transform:uppercase;
+    color:var(--steel);
+  }
+
+  input,select,textarea{
+    font-family:var(--sans);
+    font-size:14px;
+    color:var(--ink);
+    background:var(--paper);
+    border:1px solid var(--rule);
+    border-radius:var(--r);
+    padding:9px 11px;
+    width:100%;
+    transition:border-color .13s ease, box-shadow .13s ease;
+  }
+  input::placeholder,textarea::placeholder{color:var(--mute)}
+  input[type=number]{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  input:hover,select:hover,textarea:hover{border-color:#b9c3cb}
+  input:focus,select:focus,textarea:focus{
+    outline:none;
+    border-color:var(--ink-2);
+    box-shadow:0 0 0 3px rgba(42,50,58,.10);
+  }
+  input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{
+    outline:2px solid var(--ink-2);
+    outline-offset:2px;
+  }
+  textarea{resize:vertical;min-height:104px;line-height:1.65}
+  select{cursor:pointer}
+
+  .btn{
+    font-family:var(--cond);
+    font-size:14px;
+    font-weight:600;
+    letter-spacing:.11em;
+    text-transform:uppercase;
+    padding:10px 20px;
+    border:1px solid var(--ink);
+    border-radius:var(--r);
+    background:var(--ink);
+    color:#fff;
+    cursor:pointer;
+    transition:background .13s ease, border-color .13s ease, color .13s ease;
+  }
+  .btn:hover{background:#000;border-color:#000}
+  .btn--ghost{background:transparent;color:var(--ink-2);border-color:var(--rule)}
+  .btn--ghost:hover{background:var(--hairline);color:var(--ink);border-color:#b9c3cb}
+  /* the primary action is ink, not accent — yellow is reserved for data */
+  .btn--signal{background:var(--ink);border-color:var(--ink);color:#fff}
+  .btn--signal:hover{background:#000;border-color:#000}
+  .btn--sm{padding:6px 13px;font-size:13px}
+
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+  /* ---------- readings ---------- */
+
+  .readings{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px}
+  .readings th{
+    font-family:var(--cond);
+    font-size:12px;
+    font-weight:600;
+    letter-spacing:.09em;
+    text-transform:uppercase;
+    color:var(--steel);
+    text-align:right;
+    padding:0 7px 9px;
+    border-bottom:1px solid var(--rule);
+    white-space:nowrap;
+  }
+  .readings th.lead{text-align:left}
+  .readings td{
+    padding:5px 7px;
+    border-bottom:1px solid var(--hairline);
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    vertical-align:middle;
+  }
+  .readings td.lead{text-align:left}
+  .readings tr.grp td{border-bottom:1px solid var(--rule)}
+  .readings input{padding:6px 8px;text-align:right;font-size:13px}
+  .pt{
+    font-family:var(--cond);
+    font-size:16px;
+    font-weight:600;
+    letter-spacing:.04em;
+    color:var(--ink);
+  }
+  .pt small{
+    display:block;font-family:var(--mono);font-size:11px;font-weight:400;
+    letter-spacing:0;color:var(--mute);padding-top:1px;
+  }
+  .dirtag{
+    font-family:var(--cond);font-size:12px;font-weight:600;letter-spacing:.09em;
+    color:var(--steel);background:var(--hairline);border-radius:var(--r);
+    padding:2px 8px;display:inline-block;
+  }
+  .flag{
+    font-family:var(--cond);
+    font-size:13px;
+    font-weight:600;
+    letter-spacing:.08em;
+    padding:2px 10px;
+    border-radius:var(--r);
+    display:inline-block;
+  }
+  .flag--pass{color:var(--pass);background:var(--pass-soft)}
+  .flag--fail{color:var(--fail);background:var(--fail-soft)}
+  .flag--idle{color:var(--mute);background:var(--hairline)}
+  .dev--out{color:var(--fail);font-weight:600}
+
+  .rowdrop{
+    background:none;border:none;cursor:pointer;color:var(--mute);
+    font-family:var(--mono);font-size:16px;padding:0 4px;line-height:1;
+    border-radius:var(--r);transition:color .13s ease;
+  }
+  .rowdrop:hover{color:var(--fail)}
+
+  .scroller{overflow-x:auto}
+
+  /* ---------- chart ---------- */
+
+  .chart{width:100%;height:auto;display:block;overflow:visible}
+  .chart text{font-family:var(--mono);font-size:10px;fill:var(--steel)}
+  .chart .axlbl{
+    font-family:var(--cond);font-size:11px;letter-spacing:.11em;
+    text-transform:uppercase;fill:var(--mute);
+  }
+
+  .legend{
+    display:flex;gap:20px;flex-wrap:wrap;padding:14px 0 2px;
+    font-size:12px;color:var(--steel);
+  }
+  .legend i{display:inline-block;width:16px;height:3px;vertical-align:middle;margin-right:7px}
+
+  .statgrid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));
+    gap:1px;background:var(--hairline);
+    border:1px solid var(--hairline);border-radius:var(--r);
+    margin-top:18px;overflow:hidden;
+  }
+  .stat{background:var(--paper);padding:11px 13px}
+  .stat__k{
+    font-family:var(--cond);font-size:11px;font-weight:600;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--mute);
+  }
+  .stat__v{
+    font-family:var(--mono);font-size:16px;font-variant-numeric:tabular-nums;
+    padding-top:3px;letter-spacing:-.01em;
+  }
+  .stat__v small{font-size:11px;color:var(--mute);letter-spacing:0}
+  .stat--bad .stat__v{color:var(--fail);font-weight:600}
+
+  .fieldnote{
+    font-family:var(--cond);font-size:12px;font-weight:600;letter-spacing:.08em;
+    padding-top:2px;
+  }
+  .fieldnote--ok{color:var(--pass)}
+  .fieldnote--bad{color:var(--fail)}
+
+  .empty{color:var(--mute);font-size:13px;padding:16px 2px;font-style:italic}
+
+  /* ---------- labels & barcode ---------- */
+
+  .lblwrap{margin-top:20px}
+  .lblstage{
+    background:var(--paper);
+    border-radius:0 0 var(--r) var(--r);
+    box-shadow:var(--lift);
+    padding:22px;
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+    align-items:flex-start;
+    overflow-x:auto;
+  }
+
+  .lbl{
+    background:#fff;
+    border:1px solid var(--ink);
+    border-radius:var(--r);
+    color:#000;
+    font-family:var(--sans);
+    flex:none;
+    box-shadow:var(--lift);
+  }
+
+  .lbl--sticker{
+    width:70mm;min-height:32mm;
+    padding:2.4mm 3mm;
+    display:flex;flex-direction:column;
+  }
+  .lbl__strap{
+    font-family:var(--cond);
+    font-size:9pt;font-weight:600;letter-spacing:.16em;text-transform:uppercase;
+    border-bottom:1px solid #000;
+    padding-bottom:.6mm;margin-bottom:1mm;
+    display:flex;justify-content:space-between;align-items:baseline;gap:3mm;
+  }
+  .lbl__strap span:last-child{
+    font-family:var(--mono);font-size:6.4pt;font-weight:400;letter-spacing:.02em;
+  }
+  .lbl__mid{display:flex;gap:3mm;flex:1;min-height:0;align-items:stretch}
+  .lbl__facts{
+    font-family:var(--mono);font-size:6pt;line-height:1.45;
+    display:grid;grid-template-columns:auto 1fr;gap:0 1.6mm;align-content:start;
+    flex:none;width:28mm;
+  }
+  .lbl__facts b{font-weight:600}
+  .lbl__facts i{font-style:normal;color:#555}
+  .lbl__code{flex:1;display:flex;flex-direction:column;justify-content:center;min-width:0}
+  .lbl__code svg{width:100%;height:9mm;display:block}
+  .lbl__codetext{
+    font-family:var(--mono);font-size:6pt;letter-spacing:.08em;
+    text-align:center;padding-top:.4mm;
+  }
+  .lbl__due{
+    font-family:var(--cond);font-size:11pt;font-weight:600;letter-spacing:.06em;
+    line-height:1;padding-top:.8mm;
+  }
+
+  .lbl--box{
+    width:100mm;min-height:70mm;
+    padding:4.5mm 5mm;
+    display:flex;flex-direction:column;
+  }
+  .lbl--box .box__head{
+    display:flex;justify-content:space-between;align-items:flex-start;gap:4mm;
+    border-bottom:1.4pt solid #000;padding-bottom:1.6mm;
+  }
+  .box__lab{
+    font-family:var(--cond);font-size:13pt;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;line-height:1;
+  }
+  .box__kind{
+    font-family:var(--cond);font-size:8pt;letter-spacing:.16em;text-transform:uppercase;
+    color:#444;margin-top:.9mm;
+  }
+  .box__ref{font-family:var(--mono);font-size:7.5pt;text-align:right;line-height:1.5}
+  .box__grid{
+    display:grid;grid-template-columns:auto 1fr;gap:.3mm 3mm;
+    font-family:var(--mono);font-size:7.2pt;line-height:1.4;
+    padding:2mm 0;flex:1;align-content:start;min-height:0;
+  }
+  .box__grid i{font-style:normal;color:#555;font-family:var(--sans);font-size:6.8pt}
+  .box__code{
+    border-top:1px solid #000;padding-top:1.8mm;display:flex;gap:4mm;
+    align-items:center;flex:none;
+  }
+  .box__code svg{height:12mm;width:100%;display:block}
+  .box__note{
+    font-family:var(--sans);font-size:6.4pt;line-height:1.4;color:#333;
+    flex:none;width:32mm;border-left:1px solid #aaa;padding-left:3mm;
+  }
+  .box__codetext{
+    font-family:var(--mono);font-size:7pt;letter-spacing:.1em;
+    text-align:center;padding-top:.6mm;
+  }
+
+  .lblnote{font-size:12px;color:var(--mute);padding-top:6px;line-height:1.6}
+
+  /* ---------- database ---------- */
+
+  .dbstate{
+    font-family:var(--cond);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    font-weight:600;padding:3px 10px;border:1px solid;border-radius:var(--r);
+    display:inline-block;
+  }
+  .dbstate--on{color:var(--pass);border-color:rgba(19,111,69,.35);background:var(--pass-soft)}
+  .dbstate--off{color:var(--mute);border-color:var(--rule);background:var(--hairline)}
+  .dbstate--err{color:var(--fail);border-color:rgba(179,48,31,.35);background:var(--fail-soft)}
+
+  .hits{border-top:1px solid var(--hairline);margin-top:14px}
+  .hit{
+    display:flex;align-items:baseline;gap:11px;padding:9px 4px;
+    border-bottom:1px solid var(--hairline);cursor:pointer;border-radius:var(--r);
+    font-family:var(--mono);font-size:12.5px;transition:background .12s ease;
+  }
+  .hit:hover{background:var(--hairline)}
+  .hit__no{font-weight:600;flex:none}
+  .hit__desc{
+    color:var(--steel);flex:1;min-width:0;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;
+  }
+  .hit__date{color:var(--mute);flex:none;font-size:11.5px}
+
+  /* ---------- certificate ---------- */
+
+  .certwrap{position:sticky;top:88px}
+  @media (max-width:1080px){ .certwrap{position:static} }
+
+  .certbar{
+    display:flex;align-items:center;gap:10px;
+    padding:11px 18px;
+    background:linear-gradient(180deg,#1b2127 0%,#161c21 100%);
+    color:#8794a0;
+    border-radius:var(--r) var(--r) 0 0;
+    flex-wrap:wrap;
+  }
+  .certbar__label{
+    font-family:var(--cond);font-size:12px;font-weight:600;
+    letter-spacing:.18em;text-transform:uppercase;
+  }
+  .certbar__spacer{flex:1}
+  .certbar .btn{border-color:#3a444d;color:#dfe5ea;background:transparent}
+  .certbar .btn:hover{background:#2a323a;border-color:#556069;color:#fff}
+  .certbar .btn--signal{background:#f5f7f8;border-color:#f5f7f8;color:#111418}
+  .certbar .btn--signal:hover{background:#fff;border-color:#fff;color:#000}
+
+  /* The certificate is the one object that should read as a physical
+     artifact — real paper, real shadow, sitting on the workbench. */
+  .cert{
+    background:var(--paper);
+    border-radius:0 0 var(--r) var(--r);
+    box-shadow:var(--lift-2);
+    padding:36px 38px 30px;
+    font-size:12px;
+    color:var(--ink);
+  }
+  .cert__masthead{
+    display:flex;justify-content:space-between;align-items:flex-start;gap:20px;
+    border-bottom:1.5px solid var(--ink);
+    padding-bottom:14px;
+  }
+  .cert__lab{
+    font-family:var(--cond);
+    font-size:24px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
+    line-height:1.05;
+  }
+  .cert__labsub{font-size:11px;color:var(--steel);margin-top:4px;letter-spacing:.02em}
+  .cert__ident{text-align:right;font-family:var(--mono);font-size:10.5px;line-height:1.8;color:var(--steel)}
+  .cert__ident b{font-size:13.5px;letter-spacing:.03em;color:var(--ink)}
+
+  .cert__title{
+    font-family:var(--cond);
+    font-size:20px;font-weight:600;letter-spacing:.26em;text-transform:uppercase;
+    text-align:center;padding:18px 0 5px;
+  }
+  .cert__titlesub{
+    text-align:center;font-size:11px;color:var(--steel);
+    letter-spacing:.04em;padding-bottom:16px;border-bottom:1px solid var(--hairline);
+  }
+
+  .cert__section{
+    font-family:var(--cond);
+    font-size:13px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--steel);
+    border-bottom:1px solid var(--hairline);
+    padding:18px 0 5px;margin-bottom:9px;
+  }
+  .dl{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:11.5px}
+  .dl dt{color:var(--mute)}
+  .dl dd{margin:0;font-family:var(--mono);font-size:11.5px;word-break:break-word}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+  @media (max-width:560px){ .cols{grid-template-columns:1fr} }
+
+  .certtable{
+    width:100%;border-collapse:collapse;font-family:var(--mono);
+    font-size:11px;margin-top:2px;
+  }
+  .certtable th{
+    font-family:var(--cond);font-size:11px;font-weight:600;letter-spacing:.09em;
+    text-transform:uppercase;color:var(--steel);text-align:right;
+    padding:5px 6px;border-bottom:1px solid var(--ink);
+  }
+  .certtable th.lead,.certtable td.lead{text-align:left}
+  .certtable td{
+    padding:5px 6px;text-align:right;border-bottom:1px solid var(--hairline);
+    font-variant-numeric:tabular-nums;
+  }
+  .certtable tr:last-child td{border-bottom:1px solid var(--rule)}
+
+  .cert__notes{
+    border:1px solid var(--hairline);
+    border-left:2px solid var(--signal);
+    border-radius:var(--r);
+    padding:11px 14px;
+    font-size:11.5px;
+    line-height:1.7;
+    white-space:pre-wrap;
+    min-height:52px;
+    color:var(--ink);
+  }
+  .cert__notes:empty::before{content:'None recorded.';color:var(--mute);font-style:italic}
+
+  .cert__verdict{
+    display:flex;align-items:center;justify-content:space-between;gap:18px;
+    border:1.5px solid var(--ink);
+    border-radius:var(--r);
+    padding:13px 18px;margin-top:18px;
+  }
+  .cert__verdict b{
+    font-family:var(--cond);font-size:23px;font-weight:600;
+    letter-spacing:.2em;text-transform:uppercase;
+  }
+  .cert__verdict small{font-size:10.5px;color:var(--steel);text-align:right;max-width:58%;line-height:1.6}
+  .v-pass{border-color:rgba(19,111,69,.5);background:var(--pass-soft)}
+  .v-pass b{color:var(--pass)}
+  .v-fail{border-color:rgba(179,48,31,.5);background:var(--fail-soft)}
+  .v-fail b{color:var(--fail)}
+  .v-none{border-color:var(--rule)}
+  .v-none b{color:var(--mute)}
+
+  .cert__sigs{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:28px}
+  .sig{border-top:1px solid var(--ink);padding-top:6px}
+  .sig__role{
+    font-family:var(--cond);font-size:11px;font-weight:600;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--mute);
+  }
+  .sig__name{font-family:var(--mono);font-size:11.5px;margin-top:3px}
+
+  .cert__foot{
+    margin-top:20px;padding-top:10px;border-top:1px solid var(--hairline);
+    font-size:9.5px;color:var(--mute);line-height:1.7;
+  }
+
+  .stamp{
+    display:inline-block;
+    font-family:var(--cond);font-size:10px;font-weight:600;letter-spacing:.18em;
+    text-transform:uppercase;
+    border:1px solid var(--signal-deep);color:var(--signal-deep);
+    border-radius:var(--r);
+    padding:1px 8px;margin-right:4px;
+  }
+
+  /* ---------- print ---------- */
+
+  @media print{
+    @page{margin:10mm}
+    body{background:#fff;background-image:none}
+    .appbar,.stack,.certbar,.noprint{display:none !important}
+    .workspace{display:block;padding:0;max-width:none}
+    .certwrap{position:static}
+    .cert{border:none;padding:0;font-size:10.5px;box-shadow:none;border-radius:0}
+
+    .cert__verdict,.cert__sigs,.certtable tr{break-inside:avoid}
+    .cert__section{break-after:avoid}
+
+    .lblstage{border:none;padding:0;background:#fff;overflow:visible;box-shadow:none}
+    .lblwrap{margin:0}
+    .lbl{break-inside:avoid;box-shadow:none}
+
+    body.pm-cert .lblwrap{display:none !important}
+    body.pm-sticker .certwrap > .cert,
+    body.pm-box     .certwrap > .cert{display:none !important}
+    body.pm-sticker .lbl--box{display:none !important}
+    body.pm-box     .lbl--sticker{display:none !important}
+  }
+
+  @media (prefers-reduced-motion:reduce){ *{transition:none !important} }
+
+</style>
+
+<header class="appbar">
+  <div class="appbar__mark">CAL<span>BENCH</span> <em>Demo</em></div>
+  <div class="appbar__sub">Demo &middot; Torque calibration &middot; BS EN ISO 6789</div>
+  <div class="appbar__spacer"></div>
+  <div id="topVerdict" class="verdict verdict--none"><span class="verdict__dot"></span><span id="topVerdictText">Awaiting readings</span></div>
+</header>
+
+<div class="workspace">
+
+  <!-- ================= DATA ENTRY ================= -->
+  <div class="stack">
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__idx">01</span>
+        <span class="panel__title">Instrument under test</span>
+      </div>
+      <div class="panel__body">
+        <div class="grid grid--2">
+          <div class="field span2">
+            <label for="f_desc">Description</label>
+            <input id="f_desc" data-k="desc" value="Click-type torque wrench, ratchet head">
+          </div>
+          <div class="field">
+            <label for="f_make">Manufacturer</label>
+            <input id="f_make" data-k="make" value="Norbar">
+          </div>
+          <div class="field">
+            <label for="f_model">Model</label>
+            <input id="f_model" data-k="model" value="Pro 200">
+          </div>
+          <div class="field">
+            <label for="f_serial">Serial number</label>
+            <input id="f_serial" data-k="serial" value="NB-204418">
+          </div>
+          <div class="field">
+            <label for="f_asset">Customer asset ID</label>
+            <input id="f_asset" data-k="asset" value="TW-017">
+          </div>
+          <div class="field">
+            <label for="f_rmin">Range minimum</label>
+            <input id="f_rmin" data-k="rangeMin" type="number" step="any" value="40">
+          </div>
+          <div class="field">
+            <label for="f_rmax">Range maximum</label>
+            <input id="f_rmax" data-k="rangeMax" type="number" step="any" value="200">
+          </div>
+          <div class="field">
+            <label for="f_unit">Unit</label>
+            <select id="f_unit" data-k="unit">
+              <option>N&middot;m</option>
+              <option>lbf&middot;ft</option>
+              <option>kgf&middot;m</option>
+              <option>cN&middot;m</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f_res">Resolution</label>
+            <input id="f_res" data-k="resolution" value="1">
+          </div>
+          <div class="field">
+            <label for="f_dir">Direction</label>
+            <select id="f_dir" data-k="direction">
+              <option>Right hand</option>
+              <option>Left hand</option>
+              <option>Right hand / Left hand</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f_cust">Customer</label>
+            <input id="f_cust" data-k="customer" value="Example Customer Ltd">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__idx">02</span>
+        <span class="panel__title">Method &amp; conditions</span>
+        <span class="panel__hint">Tolerance drives pass/fail</span>
+      </div>
+      <div class="panel__body">
+        <div class="grid grid--3">
+          <div class="field">
+            <label for="f_tol">Tolerance &plusmn;%</label>
+            <input id="f_tol" data-k="tolerance" type="number" step="any" value="4">
+          </div>
+          <div class="field">
+            <label for="f_unc">Uncertainty &plusmn;%</label>
+            <input id="f_unc" data-k="uncertainty" type="number" step="any" value="1">
+          </div>
+          <div class="field">
+            <label for="f_n">Readings per point</label>
+            <select id="f_n" data-k="readingCount">
+              <option value="3">3</option>
+              <option value="5" selected>5</option>
+              <option value="10">10</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f_temp">Temperature &deg;C</label>
+            <input id="f_temp" data-k="temperature" type="number" step="any" value="20.4">
+            <div class="fieldnote" id="tempNote"></div>
+          </div>
+          <div class="field">
+            <label for="f_tmin">Permitted low &deg;C</label>
+            <input id="f_tmin" data-k="tempMin" type="number" step="any" value="18">
+          </div>
+          <div class="field">
+            <label for="f_tmax">Permitted high &deg;C</label>
+            <input id="f_tmax" data-k="tempMax" type="number" step="any" value="22">
+          </div>
+          <div class="field">
+            <label for="f_hum">Humidity %RH</label>
+            <input id="f_hum" data-k="humidity" type="number" step="any" value="45">
+          </div>
+          <div class="field">
+            <label for="f_proc">Procedure reference</label>
+            <input id="f_proc" data-k="procedure" value="WI-TQ-004 Rev 3">
+          </div>
+          <div class="field span2">
+            <label for="f_std">Standard applied</label>
+            <select id="f_std" data-k="standard">
+              <option>BS EN ISO 6789-2:2017</option>
+              <option>BS EN ISO 6789-1:2017</option>
+              <option>BS 7882:2017</option>
+              <option>BS EN ISO/IEC 17025:2017</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__idx">03</span>
+        <span class="panel__title">Reference equipment</span>
+        <span class="panel__hint">Traceability chain</span>
+      </div>
+      <div class="panel__body">
+        <div class="toolbar" style="margin-bottom:14px">
+          <button class="btn btn--ghost btn--sm" data-act="addequip">Add equipment</button>
+          <button class="btn btn--ghost btn--sm" data-act="resetequip">Reset to standard set</button>
+        </div>
+        <div class="scroller">
+          <table class="readings">
+            <thead>
+              <tr>
+                <th class="lead">Equipment</th>
+                <th class="lead">Serial</th>
+                <th class="lead">Certificate no.</th>
+                <th class="lead">Due</th>
+                <th class="lead">Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="equipBody"></tbody>
+          </table>
+        </div>
+        <div id="equipWarn" class="lblnote"></div>
+        <div class="field" style="margin-top:16px">
+          <label for="f_trace">Traceable to</label>
+          <input id="f_trace" data-k="traceable" value="National standards via UKAS accredited laboratory">
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__idx">04</span>
+        <span class="panel__title">Readings</span>
+        <span class="panel__hint" id="targetHint"></span>
+      </div>
+      <div class="panel__body">
+        <div class="toolbar" style="margin-bottom:14px">
+          <button class="btn btn--ghost btn--sm" data-act="addpoint">Add test point</button>
+          <button class="btn btn--ghost btn--sm" data-act="reset">Reset to 10 points</button>
+          <button class="btn btn--ghost btn--sm" data-act="demo">Fill demo data</button>
+          <button class="btn btn--ghost btn--sm" data-act="clear">Clear readings</button>
+        </div>
+        <div class="scroller">
+          <table class="readings">
+            <thead id="readHead"></thead>
+            <tbody id="readBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__idx">05</span>
+        <span class="panel__title">Deviation curve</span>
+        <span class="panel__hint">Yellow band = permitted</span>
+      </div>
+      <div class="panel__body">
+        <div id="chart"></div>
+        <div id="legend" class="legend"></div>
+        <div class="statgrid" id="stats"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__idx">06</span>
+        <span class="panel__title">Notes</span>
+        <span class="panel__hint">Prints on the certificate</span>
+      </div>
+      <div class="panel__body">
+        <div class="grid" style="gap:14px">
+          <div class="field">
+            <label for="f_notes">Observations, adjustments, restrictions of use</label>
+            <textarea id="f_notes" data-k="notes" placeholder="Wrench received with worn ratchet pawl. Adjusted at 100% and re-tested; all points within tolerance after adjustment. Customer advised to review 12-month interval given usage rate."></textarea>
+          </div>
+          <div class="grid grid--2">
+            <div class="field">
+              <label for="f_by">Calibrated by</label>
+              <input id="f_by" data-k="calBy" value="L. Holmes">
+            </div>
+            <div class="field">
+              <label for="f_appr">Approved signatory</label>
+              <input id="f_appr" data-k="approver" value="">
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__idx">07</span>
+        <span class="panel__title">Barcode &amp; labels</span>
+        <span class="panel__hint">Code 128 subset B</span>
+      </div>
+      <div class="panel__body">
+        <div class="grid" style="gap:14px">
+          <div class="grid grid--2">
+            <div class="field">
+              <label for="f_bc">Barcode payload</label>
+              <input id="f_bc" data-k="barcode" value="TW-017">
+            </div>
+            <div class="field">
+              <label for="f_bcsrc">Fill payload from</label>
+              <select id="f_bcsrc" data-k="barcodeSource">
+                <option value="manual">Type it myself</option>
+                <option value="asset">Customer asset ID</option>
+                <option value="serial">Instrument serial</option>
+                <option value="cert">Certificate number</option>
+              </select>
+            </div>
+            <div class="field span2">
+              <label for="f_lab">Laboratory name</label>
+              <input id="f_lab" data-k="labName" value="Calbench Metrology">
+            </div>
+            <div class="field">
+              <label for="f_strap">Sticker heading</label>
+              <input id="f_strap" data-k="strap" value="Calibrated">
+            </div>
+            <div class="field">
+              <label for="f_boxref">Box reference</label>
+              <input id="f_boxref" data-k="boxRef" value="BOX-2291">
+            </div>
+            <div class="field">
+              <label for="f_qty">Quantity in box</label>
+              <input id="f_qty" data-k="boxQty" value="1">
+            </div>
+            <div class="field">
+              <label for="f_dest">Destination / line</label>
+              <input id="f_dest" data-k="boxDest" value="Example Customer &mdash; Assembly line 4">
+            </div>
+          </div>
+          <div class="field">
+            <label for="f_handle">Box label note</label>
+            <textarea id="f_handle" data-k="handling" style="min-height:70px">Handle with care. Do not use beyond the recommended due date. Scan on receipt and at each transfer.</textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel__head">
+        <span class="panel__idx">08</span>
+        <span class="panel__title">Certificate store</span>
+        <span class="panel__hint"><span id="dbState" class="dbstate dbstate--off">Checking</span></span>
+      </div>
+      <div class="panel__body">
+        <div class="toolbar" style="margin-bottom:12px">
+          <button class="btn btn--sm" data-act="save">Save certificate</button>
+          <button class="btn btn--ghost btn--sm" data-act="recent">Recent</button>
+        </div>
+        <div class="grid grid--2" style="gap:12px">
+          <div class="field">
+            <label for="f_scan">Scan or type a code</label>
+            <input id="f_scan" placeholder="Asset ID, serial or certificate number" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="f_search">Search the store</label>
+            <input id="f_search" placeholder="Customer, description, certificate" autocomplete="off">
+          </div>
+        </div>
+        <div id="dbMsg" class="lblnote"></div>
+        <div class="hits" id="dbHits"></div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ================= CERTIFICATE ================= -->
+  <div class="certwrap">
+    <div class="certbar noprint">
+      <span class="certbar__label">Certificate preview</span>
+      <span class="certbar__spacer"></span>
+      <button class="btn btn--sm btn--ghost" data-act="newcert" style="color:#dfe4e8;border-color:#4a545e">New number</button>
+      <button class="btn btn--sm btn--signal" data-act="print">Print / save PDF</button>
+    </div>
+
+    <article class="cert" id="cert">
+      <div class="cert__masthead">
+        <div>
+          <div class="cert__lab" id="c_lab">Calbench Metrology</div>
+          <div class="cert__labsub">Torque &amp; force calibration laboratory</div>
+        </div>
+        <div class="cert__ident">
+          <div>Certificate no.</div>
+          <div><b id="c_certno">&mdash;</b></div>
+          <div id="c_page">Page 1 of 1</div>
+        </div>
+      </div>
+
+      <div class="cert__title">Certificate of calibration</div>
+      <div class="cert__titlesub">Torque measuring device &mdash; calibrated to <span id="c_std">&mdash;</span> under <span id="c_proc">&mdash;</span></div>
+
+      <div class="cols">
+        <div>
+          <div class="cert__section">Instrument</div>
+          <dl class="dl">
+            <dt>Description</dt><dd id="c_desc">&mdash;</dd>
+            <dt>Manufacturer</dt><dd id="c_make">&mdash;</dd>
+            <dt>Model</dt><dd id="c_model">&mdash;</dd>
+            <dt>Serial no.</dt><dd id="c_serial">&mdash;</dd>
+            <dt>Asset ID</dt><dd id="c_asset">&mdash;</dd>
+            <dt>Range</dt><dd id="c_range">&mdash;</dd>
+            <dt>Resolution</dt><dd id="c_res">&mdash;</dd>
+            <dt>Direction</dt><dd id="c_dir">&mdash;</dd>
+          </dl>
+        </div>
+        <div>
+          <div class="cert__section">Calibration</div>
+          <dl class="dl">
+            <dt>Customer</dt><dd id="c_cust">&mdash;</dd>
+            <dt>Date of calibration</dt><dd id="c_date">&mdash;</dd>
+            <dt>Recommended due</dt><dd id="c_due">&mdash;</dd>
+            <dt>Temperature</dt><dd id="c_temp">&mdash;</dd>
+            <dt>Humidity</dt><dd id="c_hum">&mdash;</dd>
+            <dt>Tolerance applied</dt><dd id="c_tol">&mdash;</dd>
+            <dt>Readings per point</dt><dd id="c_n">&mdash;</dd>
+            <dt>Condition received</dt><dd id="c_cond">As received</dd>
+          </dl>
+        </div>
+      </div>
+
+      <div class="cert__section">Reference equipment &amp; traceability</div>
+      <table class="certtable">
+        <thead>
+          <tr>
+            <th class="lead">Equipment</th>
+            <th class="lead">Serial no.</th>
+            <th class="lead">Certificate no.</th>
+            <th>Due</th>
+          </tr>
+        </thead>
+        <tbody id="c_equip"></tbody>
+      </table>
+      <div style="font-size:10.5px;color:var(--steel);margin-top:6px;line-height:1.6">
+        Traceable to <span id="c_trace">&mdash;</span>.<span id="c_equipwarn"></span>
+      </div>
+
+      <div class="cert__section">Results</div>
+      <table class="certtable">
+        <thead id="c_head"></thead>
+        <tbody id="c_rows"></tbody>
+      </table>
+      <div style="font-size:10px;color:var(--steel);margin-top:6px;line-height:1.6" id="c_uncstate"></div>
+
+      <div class="cert__section">Derived results</div>
+      <table class="certtable" style="margin-bottom:2px">
+        <thead id="c_dhead"></thead>
+        <tbody id="c_drows"></tbody>
+      </table>
+      <div style="font-size:10px;color:var(--steel);margin-top:5px;line-height:1.6" id="c_dnote"></div>
+      <div style="font-size:10.5px;margin-top:6px;line-height:1.6" id="c_envnote"></div>
+
+      <div class="cert__section">Notes</div>
+      <div class="cert__notes" id="c_notes"></div>
+
+      <div class="cert__verdict v-none" id="c_verdictbox">
+        <b id="c_verdict">Incomplete</b>
+        <small id="c_verdictnote">Enter readings for every test point to determine a result.</small>
+      </div>
+
+      <div class="cert__sigs">
+        <div class="sig">
+          <div class="sig__role">Calibrated by</div>
+          <div class="sig__name" id="c_by">&mdash;</div>
+        </div>
+        <div class="sig">
+          <div class="sig__role">Approved signatory</div>
+          <div class="sig__name" id="c_appr">&mdash;</div>
+        </div>
+      </div>
+
+      <div class="cert__foot">
+        <span class="stamp">Prototype</span>
+        This certificate relates only to the item identified above and to the conditions recorded at the time of calibration. It must not be reproduced except in full without written approval. Results are reported as measured, prior to any adjustment unless stated in the notes. Generated by CALBENCH &mdash; a demonstration tool, not an accredited system.
+      </div>
+    </article>
+
+    <section class="lblwrap">
+      <div class="certbar noprint">
+        <span class="certbar__label">Labels</span>
+        <span class="certbar__spacer"></span>
+        <button class="btn btn--sm btn--ghost" data-act="printsticker" style="color:#dfe4e8;border-color:#4a545e">Print sticker</button>
+        <button class="btn btn--sm btn--signal" data-act="printbox">Print box label</button>
+      </div>
+      <div class="lblstage">
+
+        <div class="lbl lbl--sticker" id="sticker">
+          <div class="lbl__strap">
+            <span id="s_strap">Calibrated</span>
+            <span id="s_lab">&mdash;</span>
+          </div>
+          <div class="lbl__mid">
+            <div class="lbl__facts">
+              <i>Asset</i><b id="s_asset">&mdash;</b>
+              <i>Cert</i><b id="s_cert">&mdash;</b>
+              <i>Date</i><b id="s_date">&mdash;</b>
+              <i>By</i><b id="s_by">&mdash;</b>
+            </div>
+            <div class="lbl__code">
+              <div id="s_barcode"></div>
+              <div class="lbl__codetext" id="s_bctext">&mdash;</div>
+            </div>
+          </div>
+          <div class="lbl__due">DUE <span id="s_due">&mdash;</span></div>
+        </div>
+
+        <div class="lbl lbl--box" id="boxlabel">
+          <div class="box__head">
+            <div>
+              <div class="box__lab" id="b_lab">&mdash;</div>
+              <div class="box__kind">Calibrated equipment &mdash; scan on transfer</div>
+            </div>
+            <div class="box__ref">
+              <div id="b_ref">&mdash;</div>
+              <div id="b_qty">&mdash;</div>
+            </div>
+          </div>
+          <div class="box__grid">
+            <i>Customer</i><span id="b_cust">&mdash;</span>
+            <i>Destination</i><span id="b_dest">&mdash;</span>
+            <i>Item</i><span id="b_desc">&mdash;</span>
+            <i>Serial</i><span id="b_serial">&mdash;</span>
+            <i>Asset ID</i><span id="b_asset">&mdash;</span>
+            <i>Certificate</i><span id="b_cert">&mdash;</span>
+            <i>Calibrated</i><span id="b_date">&mdash;</span>
+            <i>Due</i><span id="b_due">&mdash;</span>
+            <i>Result</i><span id="b_result">&mdash;</span>
+          </div>
+          <div class="box__code">
+            <div style="flex:1;min-width:0">
+              <div id="b_barcode"></div>
+              <div class="box__codetext" id="b_bctext">&mdash;</div>
+            </div>
+            <div class="box__note" id="b_note">&mdash;</div>
+          </div>
+        </div>
+
+      </div>
+      <div class="lblnote noprint">Sticker 70 &times; 32 mm, box label 100 &times; 70 mm. Check the barcode with a real scanner before using it on anything that matters.</div>
+    </section>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var todayISO = new Date().toISOString().slice(0,10);
+
+  var S = {
+    desc:'', make:'', model:'', serial:'', asset:'',
+    rangeMin:40, rangeMax:200, unit:'N\u00b7m', resolution:'1', direction:'Right hand',
+    customer:'',
+    tolerance:4, uncertainty:1, readingCount:5,
+    temperature:20.4, humidity:45, tempMin:18, tempMax:22, procedure:'',
+    traceable:'',
+    equipment: defaultEquipment(),
+    notes:'', calBy:'', approver:'',
+    standard:'BS EN ISO 6789-2:2017',
+    barcode:'', barcodeSource:'manual',
+    labName:'Calbench Metrology', strap:'Calibrated',
+    boxRef:'', boxQty:'1', boxDest:'', handling:'',
+    calDate: todayISO,
+    certNo:'',
+    points: defaultPoints()
+  };
+
+  // ---------- helpers ----------
+
+  function newPoint(pct){ return {pct:pct, r:{R:[], L:[]}}; }
+
+  // The traceability chain: every item whose calibration underwrites this one.
+  function defaultEquipment(){
+    return [
+      {desc:'Torque transducer & indicator, 300 N\u00b7m', serial:'TT-300-0091', cert:'UKAS-88213/A', due:'2027-02-19'},
+      {desc:'Torque/angle calibration rig',                serial:'AR-1140',     cert:'UKAS-88220/A', due:'2027-01-12'},
+      {desc:'Digital multimeter, 6.5 digit',               serial:'DMM-4471',    cert:'CAL-31188',    due:'2026-11-30'},
+      {desc:'Deadweight set, class F1',                    serial:'WS-2207',     cert:'UKAS-87004/B', due:'2027-06-04'},
+      {desc:'Temperature & humidity logger',               serial:'TH-0912',     cert:'CAL-30541',    due:'2026-12-15'}
+    ];
+  }
+
+  function newEquipment(){ return {desc:'', serial:'', cert:'', due:''}; }
+
+  // Torque calibration is temperature sensitive, so the ambient condition is
+  // part of the method, not just a note. Outside the permitted window the
+  // readings are still real but the certificate has to say so.
+  function tempCheck(){
+    var t  = num(S.temperature);
+    var lo = num(S.tempMin);
+    var hi = num(S.tempMax);
+    if(t === null || lo === null || hi === null) return {state:'none', lo:lo, hi:hi, t:t};
+    if(lo > hi){ var swap = lo; lo = hi; hi = swap; }
+    return {state: (t >= lo && t <= hi) ? 'ok' : 'bad', lo:lo, hi:hi, t:t};
+  }
+
+  function tempRangeText(){
+    var c = tempCheck();
+    if(c.lo === null || c.hi === null) return '';
+    return fmt(c.lo,1) + ' to ' + fmt(c.hi,1) + ' \u00b0C';
+  }
+
+  // A standard whose own certificate had expired cannot underwrite this one.
+  function equipExpired(item){
+    if(!item.due || !S.calDate) return false;
+    return item.due < S.calDate;
+  }
+
+  function expiredEquipment(){
+    var out = [];
+    for(var i=0;i<S.equipment.length;i++){
+      if(equipExpired(S.equipment[i])) out.push(S.equipment[i]);
+    }
+    return out;
+  }
+
+  function defaultPoints(){
+    var out = [];
+    for(var i=1;i<=10;i++) out.push(newPoint(i*10));
+    return out;
+  }
+
+  function dirs(){
+    if(S.direction==='Right hand / Left hand'){
+      return [{k:'R',label:'RH',full:'Right hand'},{k:'L',label:'LH',full:'Left hand'}];
+    }
+    if(S.direction==='Left hand') return [{k:'L',label:'LH',full:'Left hand'}];
+    return [{k:'R',label:'RH',full:'Right hand'}];
+  }
+  function dual(){ return dirs().length > 1; }
+
+  function $(id){ return document.getElementById(id); }
+  function esc(s){
+    return String(s==null?'':s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  function num(v){
+    var n = parseFloat(v);
+    return isFinite(n) ? n : null;
+  }
+  function fmt(n, dp){
+    if(n===null||n===undefined||!isFinite(n)) return '\u2014';
+    return n.toFixed(dp===undefined?2:dp);
+  }
+  function dateUK(iso){
+    if(!iso) return '\u2014';
+    var p = String(iso).split('-');
+    if(p.length!==3) return iso;
+    return p[2]+'/'+p[1]+'/'+p[0];
+  }
+  function addYear(iso){
+    if(!iso) return '';
+    var d = new Date(iso);
+    if(isNaN(d)) return '';
+    d.setFullYear(d.getFullYear()+1);
+    return d.toISOString().slice(0,10);
+  }
+  function makeCertNo(){
+    var d = new Date();
+    var stamp = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
+    var seq = String(Math.floor(Math.random()*900)+100);
+    return 'CB-' + stamp + '-' + seq;
+  }
+
+  // ---------- calculation ----------
+
+  function span(){
+    var lo = num(S.rangeMin), hi = num(S.rangeMax);
+    if(lo===null||hi===null) return null;
+    return {lo:lo, hi:hi};
+  }
+
+  function targetFor(pct){
+    var sp = span();
+    if(!sp) return null;
+    // percentage of full scale, measured across the usable range
+    return sp.lo + (sp.hi - sp.lo) * (pct/100);
+  }
+
+  function analyse(pt, dk){
+    var target = targetFor(pt.pct);
+    var src = (pt.r && pt.r[dk]) ? pt.r[dk] : [];
+    var vals = [];
+    for(var i=0;i<S.readingCount;i++){
+      var v = num(src[i]);
+      if(v!==null) vals.push(v);
+    }
+    var out = {
+      target: target,
+      vals: vals,
+      complete: vals.length === Number(S.readingCount) && target!==null && target!==0,
+      mean:null, dev:null, devPct:null, repeatPct:null, pass:null
+    };
+    if(!vals.length || target===null || target===0) return out;
+
+    var sum = 0, min = vals[0], max = vals[0];
+    for(var j=0;j<vals.length;j++){
+      sum += vals[j];
+      if(vals[j]<min) min = vals[j];
+      if(vals[j]>max) max = vals[j];
+    }
+    out.mean = sum / vals.length;
+    out.dev = out.mean - target;
+    out.devPct = (out.dev / target) * 100;
+    out.repeatPct = out.mean === 0 ? null : ((max - min) / out.mean) * 100;
+
+    var tol = num(S.tolerance);
+    if(tol!==null) out.pass = Math.abs(out.devPct) <= tol;
+    return out;
+  }
+
+  function overall(){
+    var anyData = false, allComplete = true, allPass = true, worst = 0;
+    var ds = dirs();
+    for(var i=0;i<S.points.length;i++){
+      for(var d=0;d<ds.length;d++){
+        var a = analyse(S.points[i], ds[d].k);
+        if(a.vals.length) anyData = true;
+        if(!a.complete) allComplete = false;
+        if(a.pass === false) allPass = false;
+        if(a.devPct!==null && Math.abs(a.devPct) > Math.abs(worst)) worst = a.devPct;
+      }
+    }
+    var envBad = tempCheck().state === 'bad';
+
+    var state;
+    if(!S.points.length || !anyData) state = 'none';
+    else if(!allPass)                state = 'fail';
+    else if(!allComplete)            state = 'partial';
+    else                             state = 'pass';
+
+    // Out of the permitted temperature window the method was not followed,
+    // so the certificate fails regardless of how the readings looked.
+    if(envBad && state !== 'none') state = 'fail';
+
+    return {state:state, worst:worst, envFail:envBad, readingsFail:!allPass};
+  }
+
+  // ---------- render: readings grid ----------
+
+  function buildGrid(){
+    var n = Number(S.readingCount);
+    var ds = dirs();
+
+    var head = '<tr><th class="lead">Point</th>';
+    if(dual()) head += '<th class="lead">Dir</th>';
+    for(var i=0;i<n;i++) head += '<th>R'+(i+1)+'</th>';
+    head += '<th>Mean</th><th>Dev %</th><th>Repeat %</th><th>Result</th><th></th></tr>';
+    $('readHead').innerHTML = head;
+
+    var cols = n + 5 + (dual() ? 1 : 0);
+    var body = '';
+    if(!S.points.length){
+      body = '<tr><td colspan="'+cols+'" class="lead"><div class="empty">No test points. Add one to begin.</div></td></tr>';
+    }
+
+    for(var p=0;p<S.points.length;p++){
+      var pt = S.points[p];
+      var t  = targetFor(pt.pct);
+      for(var d=0;d<ds.length;d++){
+        var last = (d === ds.length-1);
+        body += '<tr data-row="'+p+'" data-dirk="'+ds[d].k+'"'+(last?' class="grp"':'')+'>';
+
+        if(d===0){
+          body += '<td class="lead" rowspan="'+ds.length+'"><div class="pt">'+esc(pt.pct)+
+                  '% <small>'+(t===null?'\u2014':fmt(t,1)+' '+S.unit)+'</small></div></td>';
+        }
+        if(dual()){
+          body += '<td class="lead"><span class="dirtag">'+ds[d].label+'</span></td>';
+        }
+
+        for(var k=0;k<n;k++){
+          var arr = pt.r[ds[d].k] || [];
+          var val = (arr[k]===undefined||arr[k]===null) ? '' : arr[k];
+          body += '<td><input type="number" step="any" inputmode="decimal" aria-label="'+
+                  esc(ds[d].full)+' point '+esc(pt.pct)+'% reading '+(k+1)+'" '+
+                  'data-p="'+p+'" data-i="'+k+'" data-d="'+ds[d].k+'" value="'+esc(val)+'"></td>';
+        }
+
+        body += '<td data-cell="mean">\u2014</td>';
+        body += '<td data-cell="dev">\u2014</td>';
+        body += '<td data-cell="rep">\u2014</td>';
+        body += '<td data-cell="flag"><span class="flag flag--idle">\u2014</span></td>';
+
+        if(d===0){
+          body += '<td rowspan="'+ds.length+'"><button class="rowdrop" data-act="droppoint" data-p="'+p+
+                  '" title="Remove test point" aria-label="Remove test point">\u00d7</button></td>';
+        }
+        body += '</tr>';
+      }
+    }
+    $('readBody').innerHTML = body;
+  }
+
+  function paintGrid(){
+    var rows = $('readBody').querySelectorAll('tr[data-row]');
+    for(var i=0;i<rows.length;i++){
+      var idx = Number(rows[i].getAttribute('data-row'));
+      var dk  = rows[i].getAttribute('data-dirk') || 'R';
+      var a = analyse(S.points[idx], dk);
+      var cMean = rows[i].querySelector('[data-cell=mean]');
+      var cDev  = rows[i].querySelector('[data-cell=dev]');
+      var cRep  = rows[i].querySelector('[data-cell=rep]');
+      var cFlag = rows[i].querySelector('[data-cell=flag]');
+      if(!cMean) continue;
+
+      cMean.textContent = a.mean===null ? '\u2014' : fmt(a.mean,2);
+      cDev.textContent  = a.devPct===null ? '\u2014' : (a.devPct>0?'+':'')+fmt(a.devPct,2);
+      cDev.className = (a.pass===false) ? 'dev--out' : '';
+      cRep.textContent  = a.repeatPct===null ? '\u2014' : fmt(a.repeatPct,2);
+
+      if(a.pass===null){
+        cFlag.innerHTML = '<span class="flag flag--idle">\u2014</span>';
+      } else if(a.pass){
+        cFlag.innerHTML = '<span class="flag flag--pass">'+(a.complete?'Pass':'Pass*')+'</span>';
+      } else {
+        cFlag.innerHTML = '<span class="flag flag--fail">Fail</span>';
+      }
+    }
+  }
+
+  // ---------- render: reference equipment ----------
+
+  function buildEquip(){
+    var body = '';
+    if(!S.equipment.length){
+      body = '<tr><td colspan="6" class="lead"><div class="empty">No reference equipment listed. A certificate needs at least one traceable standard.</div></td></tr>';
+    }
+    for(var i=0;i<S.equipment.length;i++){
+      var e = S.equipment[i];
+      body += '<tr data-eq="'+i+'">';
+      body += '<td class="lead"><input data-eq-f="desc"   data-eq-i="'+i+'" aria-label="Equipment description" value="'+esc(e.desc)+'" style="text-align:left"></td>';
+      body += '<td class="lead"><input data-eq-f="serial" data-eq-i="'+i+'" aria-label="Serial number" value="'+esc(e.serial)+'" style="text-align:left"></td>';
+      body += '<td class="lead"><input data-eq-f="cert"   data-eq-i="'+i+'" aria-label="Certificate number" value="'+esc(e.cert)+'" style="text-align:left"></td>';
+      body += '<td class="lead"><input data-eq-f="due"    data-eq-i="'+i+'" type="date" aria-label="Due date" value="'+esc(e.due)+'" style="text-align:left"></td>';
+      body += '<td class="lead" data-eq-cell="flag"></td>';
+      body += '<td><button class="rowdrop" data-act="dropequip" data-eq-i="'+i+'" title="Remove equipment" aria-label="Remove equipment">\u00d7</button></td>';
+      body += '</tr>';
+    }
+    $('equipBody').innerHTML = body;
+  }
+
+  function paintTemp(){
+    var c = tempCheck();
+    var el = $('tempNote');
+    if(c.state === 'none'){
+      el.className = 'fieldnote';
+      el.textContent = 'Set a temperature and a permitted window.';
+    } else if(c.state === 'ok'){
+      el.className = 'fieldnote fieldnote--ok';
+      el.textContent = 'Within ' + tempRangeText();
+    } else {
+      el.className = 'fieldnote fieldnote--bad';
+      el.textContent = 'Outside ' + tempRangeText() + ' \u2014 certificate will fail';
+    }
+  }
+
+  function paintEquip(){
+    var rows = $('equipBody').querySelectorAll('tr[data-eq]');
+    for(var i=0;i<rows.length;i++){
+      var idx = Number(rows[i].getAttribute('data-eq'));
+      var cell = rows[i].querySelector('[data-eq-cell=flag]');
+      if(!cell) continue;
+      var e = S.equipment[idx];
+      if(!e || !e.due){
+        cell.innerHTML = '<span class="flag flag--idle">No date</span>';
+      } else if(equipExpired(e)){
+        cell.innerHTML = '<span class="flag flag--fail">Expired</span>';
+      } else {
+        cell.innerHTML = '<span class="flag flag--pass">In date</span>';
+      }
+    }
+
+    var bad = expiredEquipment();
+    $('equipWarn').textContent = bad.length
+      ? (bad.length + ' item' + (bad.length===1?'':'s') +
+         ' had lapsed by the calibration date. A standard out of calibration cannot support this certificate.')
+      : '';
+  }
+
+  // ---------- derived metrics ----------
+
+  function fitLine(pairs){
+    var n = pairs.length;
+    if(n < 2) return null;
+    var sx=0, sy=0, sxy=0, sxx=0, syy=0;
+    for(var i=0;i<n;i++){
+      sx += pairs[i][0]; sy += pairs[i][1];
+      sxy += pairs[i][0]*pairs[i][1];
+      sxx += pairs[i][0]*pairs[i][0];
+      syy += pairs[i][1]*pairs[i][1];
+    }
+    var den = n*sxx - sx*sx;
+    if(den === 0) return null;
+    var slope = (n*sxy - sx*sy) / den;
+    var intercept = (sy - slope*sx) / n;
+
+    var rden = Math.sqrt(den * (n*syy - sy*sy));
+    var r = rden === 0 ? 1 : (n*sxy - sx*sy) / rden;
+
+    return {slope:slope, intercept:intercept, r2: r*r, n:n};
+  }
+
+  // Everything a calibration certificate would normally carry, derived
+  // from the readings rather than typed in.
+  function metrics(dk){
+    var pairs = [], devs = [], reps = [];
+    for(var i=0;i<S.points.length;i++){
+      var a = analyse(S.points[i], dk);
+      if(a.mean === null || a.target === null) continue;
+      pairs.push([a.target, a.mean]);
+      devs.push(a.devPct);
+      if(a.repeatPct !== null) reps.push(a.repeatPct);
+    }
+    if(!pairs.length) return null;
+
+    var fit = fitLine(pairs);
+    var fs = num(S.rangeMax);
+    var linAbs = 0;
+    if(fit){
+      for(var j=0;j<pairs.length;j++){
+        var predicted = fit.slope*pairs[j][0] + fit.intercept;
+        var e = Math.abs(pairs[j][1] - predicted);
+        if(e > linAbs) linAbs = e;
+      }
+    }
+
+    var maxDev = 0;
+    for(var k=0;k<devs.length;k++){
+      if(Math.abs(devs[k]) > Math.abs(maxDev)) maxDev = devs[k];
+    }
+    var meanRep = null;
+    if(reps.length){
+      var sum = 0;
+      for(var m=0;m<reps.length;m++) sum += reps[m];
+      meanRep = sum / reps.length;
+    }
+
+    return {
+      fit: fit,
+      n: pairs.length,
+      maxDev: maxDev,
+      meanRep: meanRep,
+      linAbs: linAbs,
+      linPct: (fs && fs !== 0) ? (linAbs / fs) * 100 : null
+    };
+  }
+
+  // Difference between right hand and left hand at the same point.
+  function hysteresis(){
+    if(!dual()) return null;
+    var worst = null, at = null;
+    for(var i=0;i<S.points.length;i++){
+      var r = analyse(S.points[i], 'R');
+      var l = analyse(S.points[i], 'L');
+      if(r.mean === null || l.mean === null || !r.target) continue;
+      var h = Math.abs(r.mean - l.mean) / r.target * 100;
+      if(worst === null || h > worst){ worst = h; at = S.points[i].pct; }
+    }
+    return worst === null ? null : {pct: worst, at: at};
+  }
+
+  // ---------- render: deviation curve ----------
+
+  function paintChart(){
+    var host = $('chart');
+    var tol = num(S.tolerance) || 4;
+    var sp = span();
+    var ds = dirs();
+
+    if(!S.points.length || !sp){
+      host.innerHTML = '<div class="empty">Add test points and a valid range to plot the curve.</div>';
+      $('legend').innerHTML = '';
+      return;
+    }
+
+    // collect series
+    var series = [], maxAbs = tol;
+    for(var d=0;d<ds.length;d++){
+      var pts = [];
+      for(var i=0;i<S.points.length;i++){
+        var a = analyse(S.points[i], ds[d].k);
+        if(a.devPct === null || a.target === null) continue;
+        pts.push({x:a.target, y:a.devPct, pass:a.pass});
+        if(Math.abs(a.devPct) > maxAbs) maxAbs = Math.abs(a.devPct);
+      }
+      series.push({k:ds[d].k, label:ds[d].full, pts:pts,
+                   colour: ds[d].k === 'L' ? 'var(--lh)' : 'var(--graphite)'});
+    }
+
+    var W = 640, H = 260, L = 52, R = 14, T = 14, B = 40;
+    var pw = W - L - R, ph = H - T - B;
+    var yMax = maxAbs * 1.2;
+
+    function px(v){ return L + ((v - sp.lo) / (sp.hi - sp.lo)) * pw; }
+    function py(v){ return T + ph/2 - (v / yMax) * (ph/2); }
+
+    var svg = '<svg class="chart" viewBox="0 0 '+W+' '+H+'" role="img" ' +
+              'aria-label="Deviation against applied torque" xmlns="http://www.w3.org/2000/svg">';
+
+    // tolerance band
+    svg += '<rect x="'+L+'" y="'+py(tol)+'" width="'+pw+'" height="'+(py(-tol)-py(tol))+
+           '" fill="var(--signal)" opacity="0.18"/>';
+    svg += '<line x1="'+L+'" y1="'+py(tol)+'" x2="'+(L+pw)+'" y2="'+py(tol)+
+           '" stroke="var(--signal-deep)" stroke-width="1"/>';
+    svg += '<line x1="'+L+'" y1="'+py(-tol)+'" x2="'+(L+pw)+'" y2="'+py(-tol)+
+           '" stroke="var(--signal-deep)" stroke-width="1"/>';
+
+    // frame and zero line
+    svg += '<rect x="'+L+'" y="'+T+'" width="'+pw+'" height="'+ph+
+           '" fill="none" stroke="var(--rule)"/>';
+    svg += '<line x1="'+L+'" y1="'+py(0)+'" x2="'+(L+pw)+'" y2="'+py(0)+
+           '" stroke="var(--steel)" stroke-dasharray="3 3"/>';
+
+    // y ticks
+    var steps = [ -yMax, -tol, 0, tol, yMax ];
+    for(var t=0;t<steps.length;t++){
+      var yv = steps[t];
+      svg += '<text x="'+(L-8)+'" y="'+(py(yv)+3.5)+'" text-anchor="end">'+
+             (yv>0?'+':'')+fmt(yv,1)+'</text>';
+    }
+
+    // x ticks at each test point
+    for(var q=0;q<S.points.length;q++){
+      var tx = targetFor(S.points[q].pct);
+      if(tx === null) continue;
+      svg += '<line x1="'+px(tx)+'" y1="'+(T+ph)+'" x2="'+px(tx)+'" y2="'+(T+ph+4)+
+             '" stroke="var(--rule)"/>';
+      if(q % 2 === 0 || S.points.length <= 6){
+        svg += '<text x="'+px(tx)+'" y="'+(T+ph+16)+'" text-anchor="middle">'+fmt(tx,0)+'</text>';
+      }
+    }
+
+    svg += '<text class="axlbl" x="'+(L+pw/2)+'" y="'+(H-6)+'" text-anchor="middle">Applied torque '+
+           esc(S.unit)+'</text>';
+    svg += '<text class="axlbl" x="14" y="'+(T+ph/2)+'" text-anchor="middle" ' +
+           'transform="rotate(-90 14 '+(T+ph/2)+')">Deviation %</text>';
+
+    // series
+    for(var si=0; si<series.length; si++){
+      var se = series[si];
+      if(!se.pts.length) continue;
+      var dpath = '';
+      for(var pi=0; pi<se.pts.length; pi++){
+        dpath += (pi ? ' L ' : 'M ') + px(se.pts[pi].x) + ' ' + py(se.pts[pi].y);
+      }
+      var dash = se.k === 'L' ? ' stroke-dasharray="6 3"' : '';
+      svg += '<path d="'+dpath+'" fill="none" stroke="'+se.colour+'" stroke-width="2"'+dash+'/>';
+      for(var mi=0; mi<se.pts.length; mi++){
+        var pt = se.pts[mi];
+        var fill = pt.pass === false ? 'var(--fail)' : se.colour;
+        svg += '<circle cx="'+px(pt.x)+'" cy="'+py(pt.y)+'" r="3.4" fill="'+fill+'"/>';
+      }
+    }
+
+    svg += '</svg>';
+    host.innerHTML = svg;
+
+    var leg = '';
+    for(var li=0; li<series.length; li++){
+      leg += '<span><i style="background:'+series[li].colour+'"></i>'+esc(series[li].label)+'</span>';
+    }
+    leg += '<span><i style="background:var(--signal);height:9px"></i>Tolerance \u00b1'+fmt(tol,1)+'%</span>';
+    leg += '<span><i style="background:var(--fail)"></i>Outside tolerance</span>';
+    $('legend').innerHTML = leg;
+  }
+
+  // ---------- render: derived statistics ----------
+
+  function statCard(k, v, sub, bad){
+    return '<div class="stat'+(bad?' stat--bad':'')+'"><div class="stat__k">'+esc(k)+
+           '</div><div class="stat__v">'+v+(sub?' <small>'+esc(sub)+'</small>':'')+'</div></div>';
+  }
+
+  function paintStats(){
+    var ds = dirs();
+    var tol = num(S.tolerance);
+    var html = '';
+
+    for(var d=0;d<ds.length;d++){
+      var m = metrics(ds[d].k);
+      var tag = dual() ? ' ' + ds[d].label : '';
+      if(!m){
+        html += statCard('Max deviation'+tag, '\u2014');
+        continue;
+      }
+      var bad = tol !== null && Math.abs(m.maxDev) > tol;
+      html += statCard('Max deviation'+tag,
+                       (m.maxDev>0?'+':'')+fmt(m.maxDev,2)+'%', null, bad);
+      html += statCard('Linearity'+tag,
+                       m.linPct===null ? '\u2014' : '\u00b1'+fmt(m.linPct,2)+'%', 'of FS');
+      html += statCard('Repeatability'+tag,
+                       m.meanRep===null ? '\u2014' : fmt(m.meanRep,2)+'%', 'mean');
+      if(m.fit){
+        html += statCard('Slope'+tag, fmt(m.fit.slope,4));
+        html += statCard('Zero offset'+tag, (m.fit.intercept>0?'+':'')+fmt(m.fit.intercept,2),
+                         S.unit);
+        html += statCard('R\u00b2'+tag, fmt(m.fit.r2,5));
+      }
+    }
+
+    var h = hysteresis();
+    if(h) html += statCard('Hysteresis', fmt(h.pct,2)+'%', 'max, at '+h.at+'%');
+
+    $('stats').innerHTML = html || '<div class="empty">Enter readings to derive statistics.</div>';
+  }
+
+  // ---------- Code 128 (subset B) ----------
+
+  var C128 = ['212222','222122','222221','121223','121322','131222','122213','122312',
+  '132212','221213','221312','231212','112232','122132','122231','113222','123122',
+  '123221','223211','221132','221231','213212','223112','312131','311222','321122',
+  '321221','312212','322112','322211','212123','212321','232121','111323','131123',
+  '131321','112313','132113','132311','211313','231113','231311','112133','112331',
+  '132131','113123','113321','133121','313121','211331','231131','213113','213311',
+  '213131','311123','311321','331121','312113','312311','332111','314111','221411',
+  '431111','111224','111422','121124','121421','141122','141221','112214','112412',
+  '122114','122411','142112','142211','241211','221114','413111','241112','134111',
+  '111242','121142','121241','114212','124112','124211','411212','421112','421211',
+  '212141','214121','412121','111143','111341','131141','114113','114311','411113',
+  '411311','113141','114131','311141','411131','211412','211214','211232'];
+  var C128_STOP = '2331112';
+
+  function bcClean(s){
+    var out = '';
+    s = String(s==null?'':s);
+    for(var i=0;i<s.length;i++){
+      var c = s.charCodeAt(i);
+      if(c>=32 && c<=126) out += s.charAt(i);
+    }
+    return out.slice(0,32);
+  }
+
+  function code128svg(text, heightPx){
+    var data = bcClean(text);
+    if(!data) return '';
+
+    var values = [];
+    for(var i=0;i<data.length;i++) values.push(data.charCodeAt(i) - 32);
+
+    var sum = 104;                       // Start B
+    for(var j=0;j<values.length;j++) sum += values[j] * (j+1);
+    var check = sum % 103;
+
+    var patterns = [C128[104]];
+    for(var k=0;k<values.length;k++) patterns.push(C128[values[k]]);
+    patterns.push(C128[check]);
+    patterns.push(C128_STOP);
+
+    var quiet = 10;
+    var modules = quiet * 2;
+    for(var m=0;m<patterns.length;m++){
+      for(var n=0;n<patterns[m].length;n++) modules += Number(patterns[m].charAt(n));
+    }
+
+    var h = heightPx || 60;
+    var bars = '';
+    var x = quiet;
+    for(var p=0;p<patterns.length;p++){
+      var pat = patterns[p];
+      for(var q=0;q<pat.length;q++){
+        var w = Number(pat.charAt(q));
+        if(q % 2 === 0){                 // even index = bar
+          bars += '<rect x="'+x+'" y="0" width="'+w+'" height="'+h+'"/>';
+        }
+        x += w;
+      }
+    }
+
+    return '<svg viewBox="0 0 '+modules+' '+h+'" preserveAspectRatio="none" ' +
+           'role="img" aria-label="Barcode '+esc(data)+'" ' +
+           'xmlns="http://www.w3.org/2000/svg"><rect width="'+modules+'" height="'+h+
+           '" fill="#fff"/><g fill="#000">'+bars+'</g></svg>';
+  }
+
+  function barcodePayload(){
+    if(S.barcodeSource==='asset')  return S.asset || '';
+    if(S.barcodeSource==='serial') return S.serial || '';
+    if(S.barcodeSource==='cert')   return S.certNo || '';
+    return S.barcode || '';
+  }
+
+  // ---------- render: labels ----------
+
+  function paintLabels(){
+    var o = overall();
+    var payload = bcClean(barcodePayload());
+    var resultWord = o.state==='pass' ? 'Pass' : (o.state==='fail' ? 'Fail' : 'Not determined');
+
+    $('s_strap').textContent = S.strap || 'Calibrated';
+    $('s_lab').textContent   = S.labName || '';
+    $('s_asset').textContent = S.asset || '\u2014';
+    $('s_cert').textContent  = S.certNo || '\u2014';
+    $('s_date').textContent  = dateUK(S.calDate);
+    $('s_by').textContent    = S.calBy || '\u2014';
+    $('s_due').textContent   = dateUK(addYear(S.calDate));
+    $('s_barcode').innerHTML = payload ? code128svg(payload, 60) : '';
+    $('s_bctext').textContent = payload || 'No payload';
+
+    $('b_lab').textContent    = S.labName || '\u2014';
+    $('b_ref').textContent    = S.boxRef || '\u2014';
+    $('b_qty').textContent    = 'Qty ' + (S.boxQty || '1');
+    $('b_cust').textContent   = S.customer || '\u2014';
+    $('b_dest').textContent   = S.boxDest || '\u2014';
+    $('b_desc').textContent   = S.desc || '\u2014';
+    $('b_serial').textContent = S.serial || '\u2014';
+    $('b_asset').textContent  = S.asset || '\u2014';
+    $('b_cert').textContent   = S.certNo || '\u2014';
+    $('b_date').textContent   = dateUK(S.calDate);
+    $('b_due').textContent    = dateUK(addYear(S.calDate));
+    $('b_result').textContent = resultWord;
+    $('b_note').textContent   = S.handling || '';
+    $('b_barcode').innerHTML  = payload ? code128svg(payload, 70) : '';
+    $('b_bctext').textContent = payload || 'No payload';
+  }
+
+  function printAs(mode){
+    document.body.classList.add(mode);
+    window.print();
+    setTimeout(function(){ document.body.classList.remove(mode); }, 400);
+  }
+
+  // ---------- render: certificate ----------
+
+  function paintCert(){
+    var sp = span();
+
+    $('c_certno').textContent = S.certNo || '\u2014';
+    $('c_lab').textContent    = S.labName || 'Laboratory';
+    $('c_std').textContent    = S.standard || '\u2014';
+    $('c_proc').textContent   = S.procedure || 'documented laboratory procedure';
+    $('c_desc').textContent   = S.desc || '\u2014';
+    $('c_make').textContent   = S.make || '\u2014';
+    $('c_model').textContent  = S.model || '\u2014';
+    $('c_serial').textContent = S.serial || '\u2014';
+    $('c_asset').textContent  = S.asset || '\u2014';
+    $('c_range').textContent  = sp ? (fmt(sp.lo,0)+' to '+fmt(sp.hi,0)+' '+S.unit) : '\u2014';
+    $('c_res').textContent    = S.resolution ? S.resolution+' '+S.unit : '\u2014';
+    $('c_dir').textContent    = S.direction || '\u2014';
+
+    $('c_cust').textContent   = S.customer || '\u2014';
+    $('c_date').textContent   = dateUK(S.calDate);
+    $('c_due').textContent    = dateUK(addYear(S.calDate));
+    var tc = tempCheck();
+    $('c_temp').textContent   = S.temperature===''||S.temperature===null
+      ? '\u2014'
+      : S.temperature + ' \u00b0C' + (tc.state==='bad' ? '  (outside ' + tempRangeText() + ')' : '');
+    $('c_hum').textContent    = S.humidity===''||S.humidity===null ? '\u2014' : S.humidity+' %RH';
+    $('c_tol').textContent    = '\u00b1'+fmt(num(S.tolerance),1)+' %';
+    $('c_n').textContent      = S.readingCount;
+
+    var eqrows = '';
+    if(!S.equipment.length){
+      eqrows = '<tr><td class="lead" colspan="4">No reference equipment recorded.</td></tr>';
+    }
+    for(var q=0;q<S.equipment.length;q++){
+      var eq = S.equipment[q];
+      var expired = equipExpired(eq);
+      eqrows += '<tr>';
+      eqrows += '<td class="lead">'+esc(eq.desc || '\u2014')+'</td>';
+      eqrows += '<td class="lead">'+esc(eq.serial || '\u2014')+'</td>';
+      eqrows += '<td class="lead">'+esc(eq.cert || '\u2014')+'</td>';
+      eqrows += '<td'+(expired?' style="color:#b3301f;font-weight:600"':'')+'>'+
+                dateUK(eq.due)+(expired?' \u2014 expired':'')+'</td>';
+      eqrows += '</tr>';
+    }
+    $('c_equip').innerHTML = eqrows;
+    $('c_trace').textContent = S.traceable || '\u2014';
+
+    var badEq = expiredEquipment();
+    $('c_equipwarn').textContent = badEq.length
+      ? ' Note: ' + badEq.length + ' item' + (badEq.length===1?'':'s') +
+        ' listed above had lapsed at the calibration date.'
+      : '';
+
+    var ds = dirs();
+    var chead = '<tr><th class="lead">Test point</th>';
+    if(dual()) chead += '<th class="lead">Direction</th>';
+    chead += '<th>Target</th><th>Mean</th><th>Deviation</th><th>Dev. %</th><th>Repeat. %</th><th>Result</th></tr>';
+    $('c_head').innerHTML = chead;
+
+    var ccols = dual() ? 8 : 7;
+    var rows = '';
+    if(!S.points.length){
+      rows = '<tr><td class="lead" colspan="'+ccols+'">No test points recorded.</td></tr>';
+    }
+    for(var i=0;i<S.points.length;i++){
+      var pt = S.points[i];
+      for(var d=0;d<ds.length;d++){
+        var a = analyse(pt, ds[d].k);
+        var res = a.pass===null ? '\u2014' : (a.pass ? 'Pass' : 'Fail');
+        rows += '<tr>';
+        rows += '<td class="lead">'+esc(pt.pct)+'% of range</td>';
+        if(dual()) rows += '<td class="lead">'+esc(ds[d].full)+'</td>';
+        rows += '<td>'+(a.target===null?'\u2014':fmt(a.target,2))+'</td>';
+        rows += '<td>'+(a.mean===null?'\u2014':fmt(a.mean,2))+'</td>';
+        rows += '<td>'+(a.dev===null?'\u2014':(a.dev>0?'+':'')+fmt(a.dev,2))+'</td>';
+        rows += '<td'+(a.pass===false?' style="color:#bf3222;font-weight:600"':'')+'>'+(a.devPct===null?'\u2014':(a.devPct>0?'+':'')+fmt(a.devPct,2))+'</td>';
+        rows += '<td>'+(a.repeatPct===null?'\u2014':fmt(a.repeatPct,2))+'</td>';
+        rows += '<td>'+res+'</td>';
+        rows += '</tr>';
+      }
+    }
+    $('c_rows').innerHTML = rows;
+
+    $('c_uncstate').textContent =
+      'All values in ' + S.unit + '. Expanded uncertainty of measurement \u00b1' + fmt(num(S.uncertainty),1) +
+      ' %, based on a standard uncertainty multiplied by a coverage factor k = 2, providing a level of confidence of approximately 95 %, evaluated in accordance with UKAS M3003. Calibration performed to ' +
+      (S.standard || 'the standard stated above') +
+      '. Pass/fail decisions are stated without applying an uncertainty guard band.';
+
+    // derived results block
+    var dsx = dirs();
+    var dh = '<tr><th class="lead">Characteristic</th>';
+    for(var dx=0; dx<dsx.length; dx++) dh += '<th>'+esc(dsx[dx].full)+'</th>';
+    dh += '</tr>';
+    $('c_dhead').innerHTML = dh;
+
+    var mets = [];
+    for(var dy=0; dy<dsx.length; dy++) mets.push(metrics(dsx[dy].k));
+
+    function drow(label, pick){
+      var r = '<tr><td class="lead">'+label+'</td>';
+      for(var z=0; z<mets.length; z++){
+        r += '<td>'+(mets[z] ? pick(mets[z]) : '\u2014')+'</td>';
+      }
+      return r + '</tr>';
+    }
+
+    var drows = '';
+    if(!mets.length || !mets[0]){
+      drows = '<tr><td class="lead" colspan="'+(dsx.length+1)+'">No readings recorded.</td></tr>';
+    } else {
+      drows += drow('Maximum deviation, %', function(m){
+        return (m.maxDev>0?'+':'')+fmt(m.maxDev,2); });
+      drows += drow('Linearity error, % of full scale', function(m){
+        return m.linPct===null ? '\u2014' : '\u00b1'+fmt(m.linPct,2); });
+      drows += drow('Linearity error, '+S.unit, function(m){
+        return fmt(m.linAbs,2); });
+      drows += drow('Mean repeatability, %', function(m){
+        return m.meanRep===null ? '\u2014' : fmt(m.meanRep,2); });
+      drows += drow('Best-fit slope', function(m){
+        return m.fit ? fmt(m.fit.slope,4) : '\u2014'; });
+      drows += drow('Zero offset, '+S.unit, function(m){
+        return m.fit ? (m.fit.intercept>0?'+':'')+fmt(m.fit.intercept,2) : '\u2014'; });
+      drows += drow('Coefficient of determination, R\u00b2', function(m){
+        return m.fit ? fmt(m.fit.r2,5) : '\u2014'; });
+      drows += drow('Test points used', function(m){ return String(m.n); });
+
+      var hy = hysteresis();
+      if(hy){
+        drows += '<tr><td class="lead">Maximum hysteresis, %</td><td colspan="'+dsx.length+
+                 '">'+fmt(hy.pct,2)+' at '+esc(hy.at)+'% of range</td></tr>';
+      }
+    }
+    $('c_drows').innerHTML = drows;
+
+    $('c_dnote').textContent =
+      'Linearity is the largest departure of the mean readings from a least-squares straight line ' +
+      'through them, expressed against full scale. Repeatability is the spread of readings at a ' +
+      'point as a percentage of its mean. Hysteresis is the difference between right hand and left ' +
+      'hand means at the same test point. These figures are derived from the readings above.';
+
+    var envEl = $('c_envnote');
+    if(tc.state === 'bad'){
+      envEl.style.color = '#b3301f';
+      envEl.textContent = 'Environmental failure: calibration was carried out at ' +
+        fmt(tc.t,1) + ' \u00b0C, outside the permitted window of ' + tempRangeText() +
+        '. The specified conditions were not met, so this calibration does not ' +
+        'demonstrate conformity and the instrument must be recalibrated within the ' +
+        'permitted range. Readings are reported as measured for information only.';
+    } else if(tc.state === 'ok'){
+      envEl.style.color = 'var(--steel)';
+      envEl.textContent = 'Ambient temperature was within the permitted window of ' +
+        tempRangeText() + ' throughout.';
+    } else {
+      envEl.textContent = '';
+    }
+
+    $('c_notes').textContent = S.notes || '';
+    $('c_by').textContent    = S.calBy || '\u2014';
+    $('c_appr').textContent  = S.approver || '\u2014';
+
+    // verdict
+    var o = overall();
+    var box = $('c_verdictbox');
+    var word, note, cls, topCls, topWord;
+    if(o.state==='pass'){
+      word='Pass'; cls='v-pass'; topCls='verdict verdict--pass'; topWord='Within tolerance';
+      note='All test points fall within \u00b1'+fmt(num(S.tolerance),1)+' %. Largest deviation '+
+           (o.worst>0?'+':'')+fmt(o.worst,2)+' %. Ambient conditions within '+tempRangeText()+'.';
+    } else if(o.state==='fail'){
+      word='Fail'; cls='v-fail'; topCls='verdict verdict--fail';
+      var reasons = [];
+      if(o.readingsFail){
+        reasons.push('one or more test points fall outside \u00b1'+fmt(num(S.tolerance),1)+
+                     ' % (largest deviation '+(o.worst>0?'+':'')+fmt(o.worst,2)+' %)');
+      }
+      if(o.envFail){
+        reasons.push('ambient temperature of '+fmt(tempCheck().t,1)+
+                     ' \u00b0C was outside the permitted window of '+tempRangeText());
+      }
+      topWord = o.readingsFail ? 'Out of tolerance' : 'Environmental failure';
+      note = 'Failed because ' + reasons.join(', and ') + '.';
+    } else if(o.state==='partial'){
+      word='In progress'; cls='v-none'; topCls='verdict verdict--none'; topWord='Readings incomplete';
+      note='Readings so far are within tolerance, but not every point has a full set.';
+    } else {
+      word='Incomplete'; cls='v-none'; topCls='verdict verdict--none'; topWord='Awaiting readings';
+      note='Enter readings for every test point to determine a result.';
+    }
+    box.className = 'cert__verdict '+cls;
+    $('c_verdict').textContent = word;
+    $('c_verdictnote').textContent = note;
+    $('topVerdict').className = topCls;
+    $('topVerdictText').textContent = topWord;
+
+    var sp2 = span();
+    $('targetHint').textContent = sp2
+      ? ('Range '+fmt(sp2.lo,0)+'\u2013'+fmt(sp2.hi,0)+' '+S.unit)
+      : 'Set a valid range';
+  }
+
+  function paintAll(){
+    paintGrid();
+    paintTemp();
+    paintEquip();
+    paintChart();
+    paintStats();
+    paintCert();
+    paintLabels();
+  }
+
+  function renderAll(){
+    buildGrid();
+    buildEquip();
+    paintAll();
+  }
+
+  // ---------- events ----------
+
+  document.addEventListener('input', function(e){
+    var t = e.target;
+
+    if(t.hasAttribute && t.hasAttribute('data-k')){
+      var k = t.getAttribute('data-k');
+      S[k] = t.value;
+      if(k==='readingCount'){
+        renderAll();
+      } else if(k==='rangeMin' || k==='rangeMax' || k==='unit' || k==='direction'){
+        renderAll();          // point targets shown in the grid change
+      } else {
+        paintAll();
+      }
+      return;
+    }
+
+    if(t.hasAttribute && t.hasAttribute('data-eq-f')){
+      var ei = Number(t.getAttribute('data-eq-i'));
+      var ef = t.getAttribute('data-eq-f');
+      if(S.equipment[ei]) S.equipment[ei][ef] = t.value;
+      paintAll();             // no rebuild, so focus is kept
+      return;
+    }
+
+    if(t.hasAttribute && t.hasAttribute('data-p') && t.hasAttribute('data-i')){
+      var p  = Number(t.getAttribute('data-p'));
+      var i  = Number(t.getAttribute('data-i'));
+      var dk = t.getAttribute('data-d') || 'R';
+      if(S.points[p]){
+        if(!S.points[p].r[dk]) S.points[p].r[dk] = [];
+        S.points[p].r[dk][i] = t.value;
+      }
+      paintAll();             // never rebuilds inputs, so focus is kept
+      return;
+    }
+  });
+
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest ? e.target.closest('[data-act]') : null;
+    if(!btn) return;
+    var act = btn.getAttribute('data-act');
+
+    if(act==='addpoint'){
+      var v = prompt('Test point as a percentage of range:', '80');
+      var pct = num(v);
+      if(pct===null || pct<0 || pct>100){ return; }
+      S.points.push(newPoint(pct));
+      S.points.sort(function(a,b){ return a.pct - b.pct; });
+      renderAll();
+    }
+    else if(act==='droppoint'){
+      var idx = Number(btn.getAttribute('data-p'));
+      S.points.splice(idx,1);
+      renderAll();
+    }
+    else if(act==='addequip'){
+      S.equipment.push(newEquipment());
+      renderAll();
+    }
+    else if(act==='dropequip'){
+      S.equipment.splice(Number(btn.getAttribute('data-eq-i')),1);
+      renderAll();
+    }
+    else if(act==='resetequip'){
+      S.equipment = defaultEquipment();
+      renderAll();
+    }
+    else if(act==='reset'){
+      S.points = defaultPoints();
+      renderAll();
+    }
+    else if(act==='clear'){
+      for(var c=0;c<S.points.length;c++) S.points[c].r = {R:[], L:[]};
+      renderAll();
+    }
+    else if(act==='demo'){
+      fillDemo();
+      renderAll();
+    }
+    else if(act==='newcert'){
+      S.certNo = makeCertNo();
+      paintCert();
+      paintLabels();
+    }
+    else if(act==='print'){
+      printAs('pm-cert');
+    }
+    else if(act==='save'){
+      saveCert();
+    }
+    else if(act==='recent'){
+      dbMsg('');
+      searchStore('');
+    }
+    else if(act==='open'){
+      loadCert(btn.getAttribute('data-cert'));
+    }
+    else if(act==='printsticker'){
+      printAs('pm-sticker');
+    }
+    else if(act==='printbox'){
+      printAs('pm-box');
+    }
+  });
+
+  function fillDemo(){
+    var n = Number(S.readingCount);
+    var ds = dirs();
+    for(var p=0;p<S.points.length;p++){
+      var target = targetFor(S.points[p].pct);
+      if(target===null) continue;
+      for(var d=0;d<ds.length;d++){
+        // small consistent bias plus scatter; the top point drifts out of tolerance,
+        // and left hand sits a little lower than right, as worn wrenches tend to
+        var bias = S.points[p].pct >= 100 ? 0.052 : 0.014;
+        if(ds[d].k === 'L') bias -= 0.011;
+        var arr = [];
+        for(var i=0;i<n;i++){
+          var scatter = (Math.random()-0.5) * 0.012 * target;
+          arr.push((target * (1+bias) + scatter).toFixed(1));
+        }
+        S.points[p].r[ds[d].k] = arr;
+      }
+    }
+  }
+
+  // ---------- certificate store ----------
+  // The page works standalone from file://. When it is served by
+  // calbench_server.py these calls light up; otherwise it stays offline
+  // and everything else carries on working.
+
+  var DB = { online:false, base:'' };
+
+  function dbState(cls, text){
+    var el = $('dbState');
+    el.className = 'dbstate dbstate--' + cls;
+    el.textContent = text;
+  }
+  function dbMsg(text){ $('dbMsg').textContent = text || ''; }
+
+  function api(path, opts){
+    opts = opts || {};
+    opts.headers = {'Content-Type':'application/json'};
+    return fetch(DB.base + path, opts).then(function(r){
+      return r.json().then(function(body){
+        if(!r.ok) throw new Error(body && body.error ? body.error : ('HTTP ' + r.status));
+        return body;
+      });
+    });
+  }
+
+  function checkDb(){
+    if(location.protocol === 'file:'){
+      dbState('off','Standalone');
+      dbMsg('Opened as a file, so the store is not connected. Run calbench_server.py and open the address it prints to save certificates.');
+      return;
+    }
+    api('/api/health').then(function(h){
+      DB.online = true;
+      dbState('on','Connected');
+      dbMsg(h.certificates + ' certificate' + (h.certificates===1?'':'s') + ' on file.');
+    }).catch(function(){
+      dbState('off','Standalone');
+      dbMsg('No store reachable. The tool still works, but nothing is being saved.');
+    });
+  }
+
+  function certPayload(){
+    var ds = dirs();
+    var points = [];
+    for(var i=0;i<S.points.length;i++){
+      var readings = {};
+      for(var d=0;d<ds.length;d++){
+        readings[ds[d].k] = (S.points[i].r[ds[d].k] || []).slice(0, Number(S.readingCount));
+      }
+      points.push({pct: Number(S.points[i].pct), readings: readings});
+    }
+    return {
+      cert_no: S.certNo,
+      asset_id: S.asset, serial: S.serial,
+      description: S.desc, manufacturer: S.make, model: S.model,
+      range_min: num(S.rangeMin), range_max: num(S.rangeMax),
+      unit: S.unit, resolution: S.resolution, customer: S.customer,
+      cal_date: S.calDate, standard: S.standard, procedure_ref: S.procedure,
+      direction_mode: S.direction,
+      tolerance_pct: num(S.tolerance), uncertainty_pct: num(S.uncertainty),
+      readings_per_point: Number(S.readingCount),
+      temperature_c: num(S.temperature), humidity_rh: num(S.humidity),
+      temp_min_c: num(S.tempMin), temp_max_c: num(S.tempMax),
+      traceable: S.traceable,
+      equipment: S.equipment.map(function(e){
+        return {description:e.desc, serial:e.serial, cert_no:e.cert, due_date:e.due};
+      }),
+      notes: S.notes, cal_by: S.calBy, approver: S.approver,
+      barcode: bcClean(barcodePayload()),
+      points: points
+    };
+  }
+
+  function saveCert(){
+    if(!DB.online){ dbMsg('Not connected to a store, so there is nowhere to save.'); return; }
+    if(!S.asset && !S.serial){ dbMsg('Enter an asset ID or a serial number before saving.'); return; }
+    dbMsg('Saving\u2026');
+    api('/api/certificates', {method:'POST', body: JSON.stringify(certPayload())})
+      .then(function(r){
+        dbMsg('Saved ' + r.cert_no + ' \u2014 ' + r.result + ', due ' + dateUK(r.due_date) +
+              (r.replaced ? ' (replaced the previous version)' : ''));
+        renderHits([], '');
+      })
+      .catch(function(e){ dbMsg('Could not save: ' + e.message); });
+  }
+
+  function renderHits(list, empty){
+    var host = $('dbHits');
+    if(!list || !list.length){
+      host.innerHTML = empty ? '<div class="empty">'+esc(empty)+'</div>' : '';
+      return;
+    }
+    var html = '';
+    for(var i=0;i<list.length;i++){
+      var c = list[i];
+      var flag = c.result==='pass' ? 'flag--pass' : (c.result==='fail' ? 'flag--fail' : 'flag--idle');
+      html += '<div class="hit" data-act="open" data-cert="'+esc(c.cert_no)+'">';
+      html += '<span class="hit__no">'+esc(c.cert_no)+'</span>';
+      html += '<span class="flag '+flag+'">'+esc(c.result||'\u2014')+'</span>';
+      html += '<span class="hit__desc">'+esc((c.asset_id||'')+(c.description?' \u00b7 '+c.description:''))+'</span>';
+      html += '<span class="hit__date">'+esc(dateUK(c.cal_date))+'</span>';
+      html += '</div>';
+    }
+    host.innerHTML = html;
+  }
+
+  function searchStore(q){
+    if(!DB.online) return;
+    api('/api/certificates?limit=25&q=' + encodeURIComponent(q||''))
+      .then(function(r){ renderHits(r.certificates, 'Nothing matched that.'); })
+      .catch(function(e){ dbMsg('Search failed: ' + e.message); });
+  }
+
+  function scanCode(code){
+    if(!DB.online || !code) return;
+    api('/api/scan/' + encodeURIComponent(code)).then(function(r){
+      if(!r.found){
+        dbMsg('No instrument on file for ' + code + '. Saving this certificate will create one.');
+        renderHits([], '');
+        return;
+      }
+      var n = r.history.length;
+      dbMsg(r.instrument.description + ' \u2014 asset ' + (r.instrument.asset_id||'\u2014') +
+            ', serial ' + (r.instrument.serial||'\u2014') + ', ' + n +
+            ' previous calibration' + (n===1?'':'s') + '.');
+      renderHits(r.history, 'No previous certificates.');
+    }).catch(function(e){ dbMsg('Lookup failed: ' + e.message); });
+  }
+
+  function loadCert(certNo){
+    api('/api/certificates/' + encodeURIComponent(certNo)).then(function(c){
+      S.certNo = c.cert_no;
+      S.asset = c.asset_id; S.serial = c.serial; S.desc = c.description;
+      S.make = c.manufacturer; S.model = c.model;
+      S.rangeMin = c.range_min; S.rangeMax = c.range_max;
+      S.unit = c.unit; S.resolution = c.resolution; S.customer = c.customer;
+      S.calDate = c.cal_date; S.standard = c.standard; S.procedure = c.procedure_ref;
+      S.direction = c.direction_mode || S.direction;
+      S.tolerance = c.tolerance_pct; S.uncertainty = c.uncertainty_pct;
+      S.readingCount = c.readings_per_point || S.readingCount;
+      S.temperature = c.temperature_c; S.humidity = c.humidity_rh;
+      if(c.temp_min_c !== null && c.temp_min_c !== undefined) S.tempMin = c.temp_min_c;
+      if(c.temp_max_c !== null && c.temp_max_c !== undefined) S.tempMax = c.temp_max_c;
+      S.traceable = c.traceable;
+      S.equipment = (c.equipment || []).map(function(e){
+        return {desc:e.description||'', serial:e.serial||'', cert:e.cert_no||'', due:e.due_date||''};
+      });
+      if(!S.equipment.length) S.equipment = [newEquipment()];
+      S.notes = c.notes; S.calBy = c.cal_by; S.approver = c.approver;
+      S.barcode = c.barcode; S.barcodeSource = 'manual';
+
+      S.points = [];
+      for(var i=0;i<c.points.length;i++){
+        var pt = newPoint(c.points[i].pct);
+        var rd = c.points[i].readings || {};
+        if(rd.R) pt.r.R = rd.R.slice();
+        if(rd.L) pt.r.L = rd.L.slice();
+        S.points.push(pt);
+      }
+
+      // push state back into the form controls
+      var nodes = document.querySelectorAll('[data-k]');
+      for(var j=0;j<nodes.length;j++){
+        var k = nodes[j].getAttribute('data-k');
+        if(S[k]!==undefined && S[k]!==null) nodes[j].value = S[k];
+      }
+      renderAll();
+      dbMsg('Loaded ' + c.cert_no + '.');
+    }).catch(function(e){ dbMsg('Could not load: ' + e.message); });
+  }
+
+  // ---------- boot ----------
+
+  var searchTimer = null;
+  document.addEventListener('input', function(e){
+    if(e.target.id === 'f_search'){
+      clearTimeout(searchTimer);
+      var q = e.target.value;
+      searchTimer = setTimeout(function(){ searchStore(q); }, 250);
+    }
+  });
+
+  // Barcode scanners type the code then press Enter, so this needs no driver.
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Enter' && e.target.id === 'f_scan'){
+      e.preventDefault();
+      scanCode(e.target.value.trim());
+    }
+  });
+
+  function boot(){
+    var nodes = document.querySelectorAll('[data-k]');
+    for(var i=0;i<nodes.length;i++){
+      var k = nodes[i].getAttribute('data-k');
+      if(nodes[i].value !== '' && nodes[i].value !== undefined){
+        S[k] = nodes[i].value;
+      } else if(S[k]!==undefined && S[k]!==null && S[k]!==''){
+        nodes[i].value = S[k];
+      }
+    }
+    S.certNo = makeCertNo();
+    renderAll();
+    checkDb();
+  }
+
+  boot();
+})();
+</script>
