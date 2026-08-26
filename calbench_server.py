@@ -1,0 +1,729 @@
+#!/usr/bin/env python3
+"""
+CALBENCH — certificate store and API.
+
+Standard library only: no pip install, no internet, runs on a locked-down
+lab PC. Serves the front end and stores calibration certificates in SQLite.
+
+    python3 calbench_server.py
+    -> http://127.0.0.1:8000
+
+Options:
+    --port 8000         port to listen on
+    --db calbench.db    database file
+    --host 127.0.0.1    bind address
+"""
+
+import argparse
+import json
+import mimetypes
+import os
+import re
+import sqlite3
+import sys
+from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs, unquote
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+FRONTEND = os.path.join(HERE, "calbench.html")
+FRONTEND_MOBILE = os.path.join(HERE, "calbench-mobile.html")
+
+# --------------------------------------------------------------------------
+# schema
+# --------------------------------------------------------------------------
+
+SCHEMA = """
+PRAGMA journal_mode = WAL;
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS instruments (
+    id            INTEGER PRIMARY KEY,
+    asset_id      TEXT NOT NULL DEFAULT '',
+    serial        TEXT NOT NULL DEFAULT '',
+    description   TEXT NOT NULL DEFAULT '',
+    manufacturer  TEXT NOT NULL DEFAULT '',
+    model         TEXT NOT NULL DEFAULT '',
+    range_min     REAL,
+    range_max     REAL,
+    unit          TEXT NOT NULL DEFAULT '',
+    resolution    TEXT NOT NULL DEFAULT '',
+    customer      TEXT NOT NULL DEFAULT '',
+    created_at    TEXT NOT NULL,
+    UNIQUE (asset_id, serial)
+);
+
+CREATE TABLE IF NOT EXISTS certificates (
+    id                 INTEGER PRIMARY KEY,
+    cert_no            TEXT NOT NULL UNIQUE,
+    instrument_id      INTEGER NOT NULL REFERENCES instruments(id),
+    cal_date           TEXT NOT NULL DEFAULT '',
+    due_date           TEXT NOT NULL DEFAULT '',
+    standard           TEXT NOT NULL DEFAULT '',
+    procedure_ref      TEXT NOT NULL DEFAULT '',
+    direction_mode     TEXT NOT NULL DEFAULT '',
+    tolerance_pct      REAL,
+    uncertainty_pct    REAL,
+    readings_per_point INTEGER,
+    temperature_c      REAL,
+    humidity_rh        REAL,
+    temp_min_c         REAL,
+    temp_max_c         REAL,
+    std_desc           TEXT NOT NULL DEFAULT '',
+    std_serial         TEXT NOT NULL DEFAULT '',
+    std_cert           TEXT NOT NULL DEFAULT '',
+    std_due            TEXT NOT NULL DEFAULT '',
+    traceable          TEXT NOT NULL DEFAULT '',
+    notes              TEXT NOT NULL DEFAULT '',
+    cal_by             TEXT NOT NULL DEFAULT '',
+    approver           TEXT NOT NULL DEFAULT '',
+    barcode            TEXT NOT NULL DEFAULT '',
+    result             TEXT NOT NULL DEFAULT 'incomplete',
+    worst_dev_pct      REAL,
+    linearity_pct      REAL,
+    mean_repeat_pct    REAL,
+    hysteresis_pct     REAL,
+    slope              REAL,
+    zero_offset        REAL,
+    r2                 REAL,
+    created_at         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS readings (
+    id             INTEGER PRIMARY KEY,
+    certificate_id INTEGER NOT NULL REFERENCES certificates(id) ON DELETE CASCADE,
+    point_pct      REAL NOT NULL,
+    direction      TEXT NOT NULL,
+    seq            INTEGER NOT NULL,
+    value          REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cert_equipment (
+    id             INTEGER PRIMARY KEY,
+    certificate_id INTEGER NOT NULL REFERENCES certificates(id) ON DELETE CASCADE,
+    seq            INTEGER NOT NULL,
+    description    TEXT NOT NULL DEFAULT '',
+    serial         TEXT NOT NULL DEFAULT '',
+    cert_no        TEXT NOT NULL DEFAULT '',
+    due_date       TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS ix_equip_cert    ON cert_equipment(certificate_id);
+CREATE INDEX IF NOT EXISTS ix_equip_certno  ON cert_equipment(cert_no);
+CREATE INDEX IF NOT EXISTS ix_cert_barcode  ON certificates(barcode);
+CREATE INDEX IF NOT EXISTS ix_cert_instr    ON certificates(instrument_id);
+CREATE INDEX IF NOT EXISTS ix_cert_date     ON certificates(cal_date);
+CREATE INDEX IF NOT EXISTS ix_read_cert     ON readings(certificate_id);
+CREATE INDEX IF NOT EXISTS ix_instr_asset   ON instruments(asset_id);
+CREATE INDEX IF NOT EXISTS ix_instr_serial  ON instruments(serial);
+"""
+
+DIRECTION_NAMES = {"R": "Right hand", "L": "Left hand"}
+
+
+EXTRA_COLUMNS = [
+    ("temp_min_c", "REAL"), ("temp_max_c", "REAL"),
+    ("linearity_pct", "REAL"), ("mean_repeat_pct", "REAL"),
+    ("hysteresis_pct", "REAL"), ("slope", "REAL"),
+    ("zero_offset", "REAL"), ("r2", "REAL"),
+]
+
+
+def connect(path):
+    conn = sqlite3.connect(path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA)
+    migrate(conn)
+    return conn
+
+
+def migrate(conn):
+    """Add columns to databases created by an earlier version."""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(certificates)")}
+    with conn:
+        for name, decl in EXTRA_COLUMNS:
+            if name not in have:
+                conn.execute("ALTER TABLE certificates ADD COLUMN %s %s" % (name, decl))
+
+
+# --------------------------------------------------------------------------
+# calculation — the verdict is derived here, never taken from the client
+# --------------------------------------------------------------------------
+
+def to_float(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+
+def target_for(pct, range_min, range_max):
+    if range_min is None or range_max is None:
+        return None
+    return range_min + (range_max - range_min) * (pct / 100.0)
+
+
+def analyse_point(values, target, tolerance_pct):
+    """Mean, deviation and repeatability for one point in one direction."""
+    vals = [v for v in (to_float(x) for x in values) if v is not None]
+    out = {
+        "target": target,
+        "n": len(vals),
+        "mean": None,
+        "dev": None,
+        "dev_pct": None,
+        "repeat_pct": None,
+        "pass": None,
+    }
+    if not vals or target in (None, 0):
+        return out
+
+    mean = sum(vals) / len(vals)
+    out["mean"] = mean
+    out["dev"] = mean - target
+    out["dev_pct"] = (mean - target) / target * 100.0
+    out["repeat_pct"] = None if mean == 0 else (max(vals) - min(vals)) / mean * 100.0
+    if tolerance_pct is not None:
+        out["pass"] = abs(out["dev_pct"]) <= tolerance_pct
+    return out
+
+
+def fit_line(pairs):
+    """Least-squares fit. Returns slope, intercept and R^2."""
+    n = len(pairs)
+    if n < 2:
+        return None
+    sx = sum(x for x, _ in pairs)
+    sy = sum(y for _, y in pairs)
+    sxy = sum(x * y for x, y in pairs)
+    sxx = sum(x * x for x, _ in pairs)
+    syy = sum(y * y for _, y in pairs)
+
+    den = n * sxx - sx * sx
+    if den == 0:
+        return None
+    slope = (n * sxy - sx * sy) / den
+    intercept = (sy - slope * sx) / n
+
+    rden = (den * (n * syy - sy * sy)) ** 0.5
+    r = 1.0 if rden == 0 else (n * sxy - sx * sy) / rden
+    return {"slope": slope, "intercept": intercept, "r2": r * r, "n": n}
+
+
+def derive(rows, full_scale):
+    """Linearity, repeatability, hysteresis and best-fit, per direction.
+
+    Recomputed here from the stored readings so the history can be trusted
+    regardless of what the client believed.
+    """
+    per_dir, means = {}, {}
+
+    for code in DIRECTION_NAMES:
+        pairs, devs, reps = [], [], []
+        for r in rows:
+            if r["direction"] != code:
+                continue
+            st = r["stats"]
+            if st["mean"] is None or st["target"] in (None, 0):
+                continue
+            pairs.append((st["target"], st["mean"]))
+            devs.append(st["dev_pct"])
+            if st["repeat_pct"] is not None:
+                reps.append(st["repeat_pct"])
+            means.setdefault(r["pct"], {})[code] = (st["mean"], st["target"])
+        if not pairs:
+            continue
+
+        fit = fit_line(pairs)
+        lin_abs = 0.0
+        if fit:
+            lin_abs = max(
+                abs(y - (fit["slope"] * x + fit["intercept"])) for x, y in pairs
+            )
+        per_dir[code] = {
+            "n": len(pairs),
+            "max_dev_pct": max(devs, key=abs) if devs else None,
+            "mean_repeat_pct": sum(reps) / len(reps) if reps else None,
+            "linearity_abs": lin_abs,
+            "linearity_pct": (lin_abs / full_scale * 100.0)
+                             if full_scale not in (None, 0) else None,
+            "slope": fit["slope"] if fit else None,
+            "zero_offset": fit["intercept"] if fit else None,
+            "r2": fit["r2"] if fit else None,
+        }
+
+    hyst = None
+    for pct, byd in means.items():
+        if "R" in byd and "L" in byd and byd["R"][1]:
+            h = abs(byd["R"][0] - byd["L"][0]) / byd["R"][1] * 100.0
+            if hyst is None or h > hyst:
+                hyst = h
+
+    return per_dir, hyst
+
+
+def evaluate(payload):
+    """Return (result, worst_dev_pct, per_point_rows) for a submitted certificate."""
+    rmin = to_float(payload.get("range_min"))
+    rmax = to_float(payload.get("range_max"))
+    tol = to_float(payload.get("tolerance_pct"))
+    per_point = int(payload.get("readings_per_point") or 0)
+
+    rows, any_data, all_complete, all_pass, worst = [], False, True, True, 0.0
+
+    for point in payload.get("points", []):
+        pct = to_float(point.get("pct"))
+        if pct is None:
+            continue
+        target = target_for(pct, rmin, rmax)
+        for code, values in (point.get("readings") or {}).items():
+            if code not in DIRECTION_NAMES:
+                continue
+            values = [v for v in values if str(v).strip() != ""]
+            stats = analyse_point(values, target, tol)
+            if stats["n"]:
+                any_data = True
+            if stats["n"] != per_point or target in (None, 0):
+                all_complete = False
+            if stats["pass"] is False:
+                all_pass = False
+            if stats["dev_pct"] is not None and abs(stats["dev_pct"]) > abs(worst):
+                worst = stats["dev_pct"]
+            rows.append({"pct": pct, "direction": code, "values": values, "stats": stats})
+
+    if not rows or not any_data:
+        result = "incomplete"
+    elif not all_pass:
+        result = "fail"
+    elif not all_complete:
+        result = "partial"
+    else:
+        result = "pass"
+
+    return result, worst, rows
+
+
+def temperature_ok(temp, lo, hi):
+    """Was the ambient temperature inside the permitted window?
+
+    Returns True, False, or None when there is not enough information.
+    Torque measurement is temperature sensitive, so this belongs on the
+    record rather than in someone's memory.
+    """
+    temp, lo, hi = to_float(temp), to_float(lo), to_float(hi)
+    if temp is None or lo is None or hi is None:
+        return None
+    if lo > hi:
+        lo, hi = hi, lo
+    return lo <= temp <= hi
+
+
+def expired_equipment(equipment, cal_date):
+    """Reference items whose own certificate had lapsed by the calibration date.
+
+    A standard out of calibration cannot underwrite the certificate it
+    appears on, so this is worth surfacing rather than burying.
+    """
+    if not cal_date:
+        return []
+    out = []
+    for item in equipment or []:
+        due = (item.get("due_date") or "").strip()
+        if due and due < cal_date:
+            out.append({
+                "description": item.get("description", ""),
+                "cert_no": item.get("cert_no", ""),
+                "due_date": due,
+            })
+    return out
+
+
+def add_year(iso):
+    try:
+        d = datetime.strptime(iso, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return ""
+    try:
+        return d.replace(year=d.year + 1).strftime("%Y-%m-%d")
+    except ValueError:                      # 29 February
+        return (d + timedelta(days=365)).strftime("%Y-%m-%d")
+
+
+# --------------------------------------------------------------------------
+# storage
+# --------------------------------------------------------------------------
+
+def upsert_instrument(conn, p):
+    asset = (p.get("asset_id") or "").strip()
+    serial = (p.get("serial") or "").strip()
+    if not asset and not serial:
+        raise ValueError("an asset ID or a serial number is required")
+
+    row = conn.execute(
+        "SELECT id FROM instruments WHERE asset_id = ? AND serial = ?", (asset, serial)
+    ).fetchone()
+
+    fields = (
+        p.get("description", ""), p.get("manufacturer", ""), p.get("model", ""),
+        to_float(p.get("range_min")), to_float(p.get("range_max")),
+        p.get("unit", ""), p.get("resolution", ""), p.get("customer", ""),
+    )
+
+    if row:
+        conn.execute(
+            """UPDATE instruments SET description=?, manufacturer=?, model=?,
+               range_min=?, range_max=?, unit=?, resolution=?, customer=?
+               WHERE id=?""",
+            fields + (row["id"],),
+        )
+        return row["id"]
+
+    cur = conn.execute(
+        """INSERT INTO instruments
+           (asset_id, serial, description, manufacturer, model,
+            range_min, range_max, unit, resolution, customer, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+        (asset, serial) + fields + (datetime.utcnow().isoformat(timespec="seconds"),),
+    )
+    return cur.lastrowid
+
+
+def save_certificate(conn, p):
+    cert_no = (p.get("cert_no") or "").strip()
+    if not cert_no:
+        raise ValueError("a certificate number is required")
+
+    result, worst, rows = evaluate(p)
+
+    # The permitted temperature window is part of the method. Outside it the
+    # method was not followed, so the certificate fails whatever the readings
+    # showed. Enforced here as well as in the browser, because the stored
+    # verdict has to stand on its own.
+    temp_ok = temperature_ok(
+        p.get("temperature_c"), p.get("temp_min_c"), p.get("temp_max_c"))
+    fail_reasons = []
+    if result == "fail":
+        fail_reasons.append("readings outside tolerance")
+    if temp_ok is False:
+        fail_reasons.append("ambient temperature outside the permitted window")
+        if result != "incomplete":
+            result = "fail"
+
+    per_dir, hyst = derive(rows, to_float(p.get("range_max")))
+    primary = per_dir.get("R") or per_dir.get("L") or {}
+    cal_date = p.get("cal_date") or ""
+    due_date = p.get("due_date") or add_year(cal_date)
+
+    with conn:
+        instrument_id = upsert_instrument(conn, p)
+
+        existing = conn.execute(
+            "SELECT id FROM certificates WHERE cert_no = ?", (cert_no,)
+        ).fetchone()
+        if existing:
+            conn.execute("DELETE FROM readings WHERE certificate_id = ?", (existing["id"],))
+            conn.execute("DELETE FROM cert_equipment WHERE certificate_id = ?", (existing["id"],))
+            conn.execute("DELETE FROM certificates WHERE id = ?", (existing["id"],))
+
+        cur = conn.execute(
+            """INSERT INTO certificates
+               (cert_no, instrument_id, cal_date, due_date, standard, procedure_ref,
+                direction_mode, tolerance_pct, uncertainty_pct, readings_per_point,
+                temperature_c, humidity_rh, temp_min_c, temp_max_c,
+                std_desc, std_serial, std_cert, std_due,
+                traceable, notes, cal_by, approver, barcode, result, worst_dev_pct,
+                linearity_pct, mean_repeat_pct, hysteresis_pct, slope, zero_offset, r2,
+                created_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                cert_no, instrument_id, cal_date, due_date,
+                p.get("standard", ""), p.get("procedure_ref", ""),
+                p.get("direction_mode", ""),
+                to_float(p.get("tolerance_pct")), to_float(p.get("uncertainty_pct")),
+                int(p.get("readings_per_point") or 0),
+                to_float(p.get("temperature_c")), to_float(p.get("humidity_rh")),
+                to_float(p.get("temp_min_c")), to_float(p.get("temp_max_c")),
+                p.get("std_desc", ""), p.get("std_serial", ""), p.get("std_cert", ""),
+                p.get("std_due", ""), p.get("traceable", ""),
+                p.get("notes", ""), p.get("cal_by", ""), p.get("approver", ""),
+                p.get("barcode", ""), result, worst,
+                primary.get("linearity_pct"), primary.get("mean_repeat_pct"), hyst,
+                primary.get("slope"), primary.get("zero_offset"), primary.get("r2"),
+                datetime.utcnow().isoformat(timespec="seconds"),
+            ),
+        )
+        cert_id = cur.lastrowid
+
+        conn.executemany(
+            """INSERT INTO cert_equipment
+               (certificate_id, seq, description, serial, cert_no, due_date)
+               VALUES (?,?,?,?,?,?)""",
+            [
+                (cert_id, i, e.get("description", ""), e.get("serial", ""),
+                 e.get("cert_no", ""), e.get("due_date", ""))
+                for i, e in enumerate(p.get("equipment") or [])
+            ],
+        )
+
+        conn.executemany(
+            """INSERT INTO readings (certificate_id, point_pct, direction, seq, value)
+               VALUES (?,?,?,?,?)""",
+            [
+                (cert_id, r["pct"], r["direction"], i, to_float(v))
+                for r in rows
+                for i, v in enumerate(r["values"])
+                if to_float(v) is not None
+            ],
+        )
+
+    return {
+        "id": cert_id,
+        "cert_no": cert_no,
+        "result": result,
+        "worst_dev_pct": round(worst, 3),
+        "due_date": due_date,
+        "replaced": bool(existing),
+        "derived": {
+            code: {k: (round(v, 5) if isinstance(v, float) else v)
+                   for k, v in stats.items()}
+            for code, stats in per_dir.items()
+        },
+        "hysteresis_pct": None if hyst is None else round(hyst, 3),
+        "temperature_ok": temp_ok,
+        "fail_reasons": fail_reasons,
+        "equipment_count": len(p.get("equipment") or []),
+        "expired_equipment": expired_equipment(p.get("equipment"), cal_date),
+    }
+
+
+def list_certificates(conn, q="", limit=50):
+    sql = """SELECT c.cert_no, c.cal_date, c.due_date, c.result, c.worst_dev_pct,
+                    c.barcode, c.direction_mode,
+                    i.asset_id, i.serial, i.description, i.customer, i.unit
+             FROM certificates c JOIN instruments i ON i.id = c.instrument_id"""
+    args = []
+    if q:
+        sql += """ WHERE c.cert_no LIKE ? OR c.barcode LIKE ? OR i.asset_id LIKE ?
+                   OR i.serial LIKE ? OR i.customer LIKE ? OR i.description LIKE ?
+                   OR EXISTS (SELECT 1 FROM cert_equipment e
+                              WHERE e.certificate_id = c.id
+                                AND (e.cert_no LIKE ? OR e.serial LIKE ?
+                                     OR e.description LIKE ?))"""
+        args = ["%%%s%%" % q] * 9
+    sql += " ORDER BY c.cal_date DESC, c.id DESC LIMIT ?"
+    args.append(int(limit))
+    return [dict(r) for r in conn.execute(sql, args)]
+
+
+def get_certificate(conn, cert_no):
+    row = conn.execute(
+        """SELECT c.*, i.asset_id, i.serial, i.description, i.manufacturer, i.model,
+                  i.range_min, i.range_max, i.unit, i.resolution, i.customer
+           FROM certificates c JOIN instruments i ON i.id = c.instrument_id
+           WHERE c.cert_no = ?""",
+        (cert_no,),
+    ).fetchone()
+    if not row:
+        return None
+
+    cert = dict(row)
+    points = {}
+    for r in conn.execute(
+        """SELECT point_pct, direction, seq, value FROM readings
+           WHERE certificate_id = ? ORDER BY point_pct, direction, seq""",
+        (cert["id"],),
+    ):
+        pt = points.setdefault(r["point_pct"], {"pct": r["point_pct"], "readings": {}})
+        pt["readings"].setdefault(r["direction"], []).append(r["value"])
+    cert["points"] = [points[k] for k in sorted(points)]
+
+    cert["equipment"] = [
+        dict(r)
+        for r in conn.execute(
+            """SELECT description, serial, cert_no, due_date FROM cert_equipment
+               WHERE certificate_id = ? ORDER BY seq""",
+            (cert["id"],),
+        )
+    ]
+    cert["expired_equipment"] = expired_equipment(cert["equipment"], cert["cal_date"])
+    cert["temperature_ok"] = temperature_ok(
+        cert["temperature_c"], cert["temp_min_c"], cert["temp_max_c"])
+    return cert
+
+
+def scan(conn, code):
+    """Barcode lookup: find the instrument, then its whole calibration history."""
+    code = code.strip()
+    instr = conn.execute(
+        """SELECT * FROM instruments
+           WHERE asset_id = ? OR serial = ?
+           ORDER BY id DESC LIMIT 1""",
+        (code, code),
+    ).fetchone()
+
+    if not instr:
+        cert = conn.execute(
+            """SELECT i.* FROM certificates c JOIN instruments i ON i.id = c.instrument_id
+               WHERE c.cert_no = ? OR c.barcode = ?
+               ORDER BY c.id DESC LIMIT 1""",
+            (code, code),
+        ).fetchone()
+        instr = cert
+
+    if not instr:
+        return {"found": False, "code": code}
+
+    history = [
+        dict(r)
+        for r in conn.execute(
+            """SELECT cert_no, cal_date, due_date, result, worst_dev_pct, direction_mode
+               FROM certificates WHERE instrument_id = ?
+               ORDER BY cal_date DESC, id DESC""",
+            (instr["id"],),
+        )
+    ]
+    return {"found": True, "code": code, "instrument": dict(instr), "history": history}
+
+
+# --------------------------------------------------------------------------
+# http
+# --------------------------------------------------------------------------
+
+CERT_NO_RE = re.compile(r"^[A-Za-z0-9._\-]{1,64}$")
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "CalbenchStore/1.0"
+    conn = None
+
+    def log_message(self, fmt, *args):
+        sys.stderr.write("  %s %s\n" % (self.command, self.path))
+
+    # -- helpers ----------------------------------------------------------
+
+    def send_json(self, obj, status=200):
+        body = json.dumps(obj, default=str).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_file(self, path):
+        if not os.path.isfile(path):
+            return self.send_json({"error": "front end not found: %s" % path}, 404)
+        ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        with open(path, "rb") as fh:
+            body = fh.read()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def read_json(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 2_000_000:
+            raise ValueError("empty or oversized request body")
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    # -- routes -----------------------------------------------------------
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def do_GET(self):
+        url = urlparse(self.path)
+        path = url.path
+        query = parse_qs(url.query)
+
+        if path in ("/", "/index.html"):
+            return self.send_file(FRONTEND)
+
+        if path in ("/mobile", "/mobile.html", "/calbench-mobile.html"):
+            return self.send_file(FRONTEND_MOBILE)
+
+        if path == "/api/health":
+            n = self.conn.execute("SELECT COUNT(*) c FROM certificates").fetchone()["c"]
+            return self.send_json({"ok": True, "certificates": n})
+
+        if path == "/api/certificates":
+            q = (query.get("q") or [""])[0]
+            limit = (query.get("limit") or ["50"])[0]
+            try:
+                limit = max(1, min(500, int(limit)))
+            except ValueError:
+                limit = 50
+            return self.send_json({"certificates": list_certificates(self.conn, q, limit)})
+
+        m = re.match(r"^/api/certificates/(.+)$", path)
+        if m:
+            cert_no = unquote(m.group(1))
+            cert = get_certificate(self.conn, cert_no)
+            if not cert:
+                return self.send_json({"error": "no certificate %s" % cert_no}, 404)
+            return self.send_json(cert)
+
+        m = re.match(r"^/api/scan/(.+)$", path)
+        if m:
+            return self.send_json(scan(self.conn, unquote(m.group(1))))
+
+        return self.send_json({"error": "no route for %s" % path}, 404)
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/api/certificates":
+            return self.send_json({"error": "no route for %s" % self.path}, 404)
+        try:
+            payload = self.read_json()
+        except (ValueError, json.JSONDecodeError) as exc:
+            return self.send_json({"error": "bad request body: %s" % exc}, 400)
+
+        cert_no = (payload.get("cert_no") or "").strip()
+        if not CERT_NO_RE.match(cert_no):
+            return self.send_json(
+                {"error": "certificate number must be 1-64 characters, letters, "
+                          "digits, dot, dash or underscore"}, 400)
+
+        try:
+            return self.send_json(save_certificate(self.conn, payload), 201)
+        except ValueError as exc:
+            return self.send_json({"error": str(exc)}, 400)
+        except sqlite3.Error as exc:
+            return self.send_json({"error": "database error: %s" % exc}, 500)
+
+
+def main():
+    ap = argparse.ArgumentParser(description="CALBENCH certificate store")
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--db", default=os.path.join(HERE, "calbench.db"))
+    args = ap.parse_args()
+
+    Handler.conn = connect(args.db)
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    print("CALBENCH store")
+    print("  database   : %s" % args.db)
+    print("  desktop    : %s" % FRONTEND)
+    print("  mobile     : %s" % FRONTEND_MOBILE)
+    print("  listening  : http://%s:%d" % (args.host, args.port))
+    print("  on iPhone  : http://%s:%d/mobile" % (args.host, args.port))
+    print("             (use your computer\'s LAN IP instead of %s if the" % args.host)
+    print("              phone is on the same wifi but not the same machine)")
+    print("  stop with Ctrl-C")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopped")
+    finally:
+        Handler.conn.close()
+
+
+if __name__ == "__main__":
+    main()
