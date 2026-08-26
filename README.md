@@ -177,46 +177,17 @@ Verified with synthetic data — a perfectly linear instrument returns R² = 1.0
 
 Built iteratively against real feedback from working labs
 
-📂 Project Structure (recommended)
-Code
-calbench/
-  backend/
-    server.py
-    schema.sql
-    api/
-      save.py
-      load.py
-      search.py
-      scan_lookup.py
-
-  frontend-desktop/
-    index.html
-    style.css
-    app.js
-    barcode_encoder.js
-    chart.js
-
-  frontend-mobile/
-    index.html
-    mobile.css
-    mobile.js
-
-  shared/
-    core.js
-    utils.js
-
-  database/
-    calbench.db
-
-  docs/
-    calbench-presentation.pdf
-    screenshots/
-
-  README.md
+README.md
   LICENSE
 🚀 Status
 Prototype · Demonstration data only
 No releases published yet.
 
-📄 License
-MIT License
+
+📜 License
+This project is licensed under the MIT License.
+
+👤 Author
+Lee  
+Leicester, UK
+Embedded & Software Engineering
