@@ -3,7 +3,7 @@ A working prototype covering data entry, calibration maths, BS EN ISO 6789 certi
 
 🔗 Live demo: https://perfecthost-ship-it.github.io/calbench/
 
-🌐 CALBENCH
+ CALBENCH
 Torque Calibration Certificates, Labels & Traceability
 
 A working prototype covering data entry, calibration maths, BS EN ISO 6789 certificates, Code 128 barcode labels, and a searchable SQLite store — built to demonstrate software engineering ability alongside torque and force metrology experience.
@@ -11,7 +11,7 @@ A working prototype covering data entry, calibration maths, BS EN ISO 6789 certi
 Prototype · Demonstration data only
 Built with deliberately ordinary tools, deliberately used well.
 
-📌 Overview
+ Overview
 Most calibration labs run torque calibration as three disconnected processes:
 
 A spreadsheet for readings
@@ -34,7 +34,7 @@ A Code 128 barcode that follows the instrument through production, and a databas
 
 “What did this standard underwrite?”
 
-🔧 Instrument, Method & Conditions
+ Instrument, Method & Conditions
 Every field a UKAS‑style certificate needs:
 
 Instrument under test
@@ -49,7 +49,7 @@ Environmental window checks
 
 Ambient temperature is validated live; outside the permitted window, the certificate fails automatically, because the method wasn’t followed — regardless of how the readings looked.
 
-🧩 Reference Equipment & Traceability
+ Reference Equipment & Traceability
 A calibration is only as good as the standards behind it.
 
 Real labs use several:
@@ -65,7 +65,7 @@ Weight set
 Each has its own serial and certificate, and each is checked against the calibration date.
 Expired standards are flagged automatically — a standard out of calibration cannot underwrite the certificate it appears on.
 
-📈 Ten Test Points, Both Directions
+ Ten Test Points, Both Directions
 Right‑hand, left‑hand, or both.
 
 With both selected, every point gets:
@@ -78,7 +78,7 @@ Verdict per direction
 
 A wrench drifting in one direction doesn’t get averaged into a false pass.
 
-📊 Linearity, Repeatability & Hysteresis
+ Linearity, Repeatability & Hysteresis
 Every figure is calculated from raw readings:
 
 Linearity
@@ -94,7 +94,7 @@ R²
 The deviation chart plots applied torque vs deviation, with the tolerance band shaded behind it.
 Any point drifting past 100% of range is highlighted in red instantly.
 
-📝 Certificate Output
+ Certificate Output
 A certificate that reads as a real document:
 
 Masthead
@@ -123,7 +123,7 @@ The same payload prints on:
 
 One scan follows the item through the whole process.
 
-🔍 Scan & Search
+ Scan & Search
 Every certificate and every reference item lives in SQLite.
 
 A scan returns:
@@ -138,7 +138,7 @@ Enter a standard’s serial number → get every certificate it underwrote.
 
 Exactly the query you need when a standard turns out to be faulty.
 
-📱 Mobile Build
+ Mobile Build
 A separate build for the phone — not the desktop layout squeezed down, but a genuine mobile shell:
 
 Bottom tab bar
@@ -152,7 +152,7 @@ Full‑height views
 Every calculation and API call is identical between desktop and mobile; only the shell differs.
 Certificates saved from either device are identical in the database.
 
-🛠 Built With
+ Built With
 Front End
 Plain HTML, CSS, JavaScript — no build step, no framework
 
@@ -182,15 +182,15 @@ Built iteratively against real feedback from working labs
 
 README.md
   LICENSE
-🚀 Status
+ Status
 Prototype · Demonstration data only
 No releases published yet.
 
 
-📜 License
+ License
 This project is licensed under the MIT License.
 
-👤 Author
+ Author
 Lee  
 Leicester, UK
 Embedded & Software Engineering
