@@ -3,10 +3,6 @@ A working prototype covering data entry, calibration maths, BS EN ISO 6789 certi
 
 🔗 Live demo: https://perfecthost-ship-it.github.io/calbench/
 
-
-"open calbench-mobile.html to try the mobile build"
-
-
 🌐 CALBENCH
 Torque Calibration Certificates, Labels & Traceability
 
